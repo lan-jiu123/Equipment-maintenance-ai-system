@@ -34,6 +34,7 @@ else:
 app = FastAPI()
 
 from .database import database_health, init_database
+from .services.knowledge_bootstrap import bootstrap_builtin_knowledge
 from .routers.documents import router as documents_router
 from .routers.search import router as search_router
 from .routers.rag import router as rag_router
@@ -43,6 +44,7 @@ from .routers.images import router as images_router
 @app.on_event("startup")
 def startup_database():
     init_database()
+    app.state.knowledge_bootstrap = bootstrap_builtin_knowledge()
 
 
 app.include_router(documents_router)
@@ -126,6 +128,7 @@ def readiness():
         "status": "ready" if all_ready else "not_ready",
         "checks": checks,
         "database": db_check,
+        "knowledge_bootstrap": getattr(app.state, "knowledge_bootstrap", None),
     }
 
 
