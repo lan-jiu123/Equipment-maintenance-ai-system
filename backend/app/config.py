@@ -69,12 +69,22 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
 
-    # 安全
-    SECRET_KEY: str = "change-this-to-a-secure-random-string"
-    ACCESS_TOKEN_EXPIRE_HOURS: int = 2
+    # 安全（比赛项目默认密钥，环境变量可覆盖）
+    SECRET_KEY: str = "equipai-secret-2026"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_HOURS: int = 168  # 7 天，比赛够用
+
+    # SQLite 数据库（相对 backend/ 目录，换盘符换系统都不炸）
+    DB_FILENAME: str = "equipai.db"
+
+    @property
+    def database_url(self) -> str:
+        here = Path(__file__).resolve().parent  # backend/app/
+        db_path = here.parent / self.DB_FILENAME  # backend/equipai.db
+        return f"sqlite:///{db_path.as_posix()}"
 
     # CORS
-    CORS_ORIGINS: Any = '["http://localhost:8000","http://localhost:3000"]'
+    CORS_ORIGINS: Any = '["http://localhost:8000","http://localhost:3000","http://localhost:5173","http://localhost:5174","http://localhost:5175","http://localhost:5176","http://localhost:5177"]'
 
     # LLM 通用
     LLM_BACKEND: str = "longcat"  # longcat / ollama

@@ -7,7 +7,7 @@
       </div>
       <div class="header-actions">
         <button class="btn btn-outline btn-sm" @click="exportCsv">⬇ 导出 CSV</button>
-        <router-link class="btn btn-outline btn-sm" to="/home">← 返回仪表盘</router-link>
+        <router-link class="btn btn-outline btn-sm" :to="backBtnPath">← {{ backBtnText }}</router-link>
       </div>
     </div>
 
@@ -144,6 +144,8 @@
 </template>
 
 <script>
+import { getUser } from '../utils/auth'
+
 const MODULES = ['用户管理', '权限配置', '智能检索', '案例库', '作业指导', '设备管理', '系统设置']
 const USERS = ['admin', 'zhangwei', 'liuting', 'chenbo', 'wangli', 'sunjie', 'zhouyang']
 const ACTIONS = {
@@ -241,6 +243,16 @@ export default {
     }
   },
   computed: {
+    isWorker() {
+      const u = getUser()
+      return !!(u && u.role === 'worker')
+    },
+    backBtnText() {
+      return this.isWorker ? '返回工作台' : '返回仪表盘'
+    },
+    backBtnPath() {
+      return this.isWorker ? '/desk' : '/home'
+    },
     stats() {
       const all = this.logs
       const dayAgo = Date.now() - 86400000

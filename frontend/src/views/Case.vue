@@ -2,8 +2,23 @@
   <div class="container">
     <header class="page-header">
       <h1 class="page-title">案例库</h1>
-      <p class="page-desc">历史故障案例检索与参考 · 共 {{ cases.length }} 条案例</p>
+      <p class="page-desc">历史故障案例检索与参考 · 共 {{ totalCaseCount }} 条案例 · 员工知识贡献 {{ employeeCaseCount }} 条</p>
     </header>
+
+    <!-- 来源筛选 Tab -->
+    <div class="source-tabs">
+      <button
+        v-for="t in sourceTabs"
+        :key="t.key"
+        class="source-tab"
+        :class="{ active: currentSource === t.key }"
+        @click="currentSource = t.key"
+      >
+        <span class="st-icon">{{ t.icon }}</span>
+        <span class="st-label">{{ t.label }}</span>
+        <span class="st-count">{{ t.count }}</span>
+      </button>
+    </div>
 
     <!-- 搜索 + 筛选 -->
     <div class="search-toolbar">
@@ -12,349 +27,384 @@
         <input v-model="searchQuery" class="input" placeholder="搜索案例标题、设备类型、故障类型..." />
       </div>
       <div class="filter-tags">
-        <button
-          v-for="t in tagList"
-          :key="t"
-          class="filter-tag"
-          :class="{ active: currentTag === t }"
-          @click="currentTag = t"
-        >{{ t }}</button>
+        <template v-if="tagsLoading">
+          <div class="skeleton-wrap inline">
+            <span v-for="i in 5" :key="i" class="skeleton-tag"></span>
+          </div>
+        </template>
+        <template v-else>
+          <button
+            v-for="t in tagList"
+            :key="t"
+            class="filter-tag"
+            :class="{ active: currentTag === t }"
+            @click="currentTag = t"
+          >{{ t }}</button>
+        </template>
       </div>
     </div>
+
+    <!-- 我的贡献：报告列表 -->
+    <template v-if="currentSource === 'mine'">
+      <div v-if="mineLoading" class="case-grid">
+        <div v-for="i in 6" :key="i" class="case-card card skeleton-card">
+          <div class="skeleton-block" style="height:14px;width:50%;margin-bottom:14px;"></div>
+          <div class="skeleton-block" style="height:18px;width:85%;margin-bottom:12px;"></div>
+          <div class="skeleton-block" style="height:12px;width:100%;margin-bottom:8px;"></div>
+          <div class="skeleton-block" style="height:12px;width:70%;margin-bottom:16px;"></div>
+          <div class="skeleton-block" style="height:12px;width:40%;"></div>
+        </div>
+      </div>
+      <template v-else>
+        <div class="case-grid">
+          <div
+            v-for="(r, i) in filteredMyReports"
+            :key="'mine-' + (r.id || i)"
+            class="case-card card mine-card"
+          >
+            <div class="mine-top">
+              <span class="mine-type-chip" :class="'type-' + (r.type || 'case')">
+                {{ (r.type === 'guide') ? '作业指导' : '故障案例' }}
+              </span>
+              <span class="mine-status-badge" :class="'status-' + (r.status || 'pending')">
+                {{ statusLabel(r.status) }}
+              </span>
+            </div>
+            <h3 class="case-title">{{ r.title || '（未填写标题）' }}</h3>
+            <div class="mine-meta">
+              <span class="meta-item">◈ {{ r.device || '通用设备' }}</span>
+              <span class="meta-item">📅 {{ formatDate((r.submit_time_ts || r.created_at_ts) * 1000) }}</span>
+            </div>
+            <p class="case-summary mine-summary">{{ (r.problem || r.summary || '暂无描述').slice(0, 120) }}{{ ((r.problem || r.summary || '').length > 120) ? '...' : '' }}</p>
+            <div class="mine-review" v-if="r.review_remark">
+              <span class="review-label">审核备注：</span>
+              <span class="review-text">{{ r.review_remark }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-if="filteredMyReports.length === 0 && !_hydrating" class="empty-state">
+          <div class="empty-icon">▣</div>
+          <p>暂无提交的知识报告</p>
+          <p class="empty-sub">在工单完成后可提交知识贡献，积累团队知识库</p>
+        </div>
+      </template>
+    </template>
 
     <!-- 案例网格 -->
-    <div class="case-grid">
-      <div
-        v-for="(c, i) in filteredCases"
-        :key="i"
-        class="case-card card"
-        :class="{ expanded: c._open }"
-        @click="toggleCase(c)"
-      >
-        <div class="case-top">
-          <span class="case-tag" :class="c.tagClass">{{ c.tag }}</span>
-          <span class="case-date">{{ c.date }}</span>
-        </div>
-        <h3 class="case-title">{{ c.title }}</h3>
-        <p class="case-summary">{{ c.summary }}</p>
-        <div class="case-meta">
-          <span class="meta-item">◈ {{ c.device }}</span>
-          <span class="meta-item">◎ {{ c.fault }}</span>
-          <span class="meta-item severity" :class="'sev-' + c.severity">
-            ⚠ {{ severityText(c.severity) }}
-          </span>
-        </div>
-
-        <!-- 展开详情 -->
-        <transition name="expand">
-          <div v-show="c._open" class="case-detail">
-            <div class="detail-section">
-              <div class="detail-label">故障现象</div>
-              <p class="detail-text">{{ c.detail?.symptom || '暂无详细描述' }}</p>
-            </div>
-            <div class="detail-section">
-              <div class="detail-label">诊断过程</div>
-              <ol class="detail-list">
-                <li v-for="(s, idx) in (c.detail?.diagnosis || [])" :key="idx">{{ s }}</li>
-              </ol>
-            </div>
-            <div class="detail-section">
-              <div class="detail-label">处置方案</div>
-              <ul class="detail-list bullet">
-                <li v-for="(s, idx) in (c.detail?.solution || [])" :key="idx">{{ s }}</li>
-              </ul>
-            </div>
-            <div class="detail-section tips" v-if="c.detail?.tips">
-              <div class="detail-label">经验与建议</div>
-              <p class="detail-text">{{ c.detail.tips }}</p>
-            </div>
-            <div class="expand-arrow">▲ 收起</div>
+    <template v-else>
+      <div v-if="casesLoading" class="case-grid">
+        <div v-for="i in 6" :key="i" class="case-card card skeleton-card">
+          <div class="case-top">
+            <div class="skeleton-block" style="height:18px;width:50px;"></div>
+            <div class="skeleton-block" style="height:12px;width:70px;"></div>
           </div>
-        </transition>
-
-        <div class="toggle-hint" v-if="!c._open">点击查看详情 ▼</div>
+          <div class="skeleton-block" style="height:18px;width:85%;margin:12px 0 8px;"></div>
+          <div class="skeleton-block" style="height:12px;width:100%;margin-bottom:4px;"></div>
+          <div class="skeleton-block" style="height:12px;width:100%;margin-bottom:4px;"></div>
+          <div class="skeleton-block" style="height:12px;width:70%;margin-bottom:14px;"></div>
+          <div class="case-meta">
+            <div class="skeleton-block" style="height:12px;width:60px;"></div>
+            <div class="skeleton-block" style="height:12px;width:70px;"></div>
+            <div class="skeleton-block" style="height:12px;width:50px;"></div>
+          </div>
+        </div>
       </div>
-    </div>
+      <template v-else>
+        <div class="case-grid">
+          <div
+            v-for="(c, i) in filteredCases"
+            :key="'case-' + (c.id || i)"
+            class="case-card card"
+            :class="{ expanded: c._open, 'from-report': c._fromReport }"
+            @click="toggleCase(c)"
+          >
+            <div v-if="c._fromReport" class="case-badge report-badge" title="来自员工知识贡献">
+              📝 员工贡献
+            </div>
+            <div class="case-top">
+              <span class="case-tag" :class="c.tagClass">{{ c.tag }}</span>
+              <span class="case-date">{{ c.date }}</span>
+            </div>
+            <h3 class="case-title">{{ c.title }}</h3>
+            <p class="case-summary">{{ c.summary }}</p>
+            <div class="case-meta">
+              <span class="meta-item">◈ {{ c.device }}</span>
+              <span class="meta-item">◎ {{ c.fault }}</span>
+              <span class="meta-item severity" :class="'sev-' + c.severity">
+                ⚠ {{ severityText(c.severity) }}
+              </span>
+            </div>
+            <div v-if="c._fromReport" class="case-contributor">
+              <span class="contrib-icon">🧑</span>
+              <span>贡献人：<b>{{ c._userName }}</b></span>
+              <span class="contrib-time">· 入库 {{ formatDate(c._syncTime) }}</span>
+            </div>
 
-    <!-- 空状态 -->
-    <div v-if="filteredCases.length === 0" class="empty-state">
-      <div class="empty-icon">▣</div>
-      <p>未找到匹配的案例</p>
-      <p class="empty-sub">尝试更换搜索关键词或选择其他分类</p>
-    </div>
+            <!-- 展开详情 -->
+            <transition name="expand">
+              <div v-show="c._open" class="case-detail">
+                <div class="detail-section">
+                  <div class="detail-label">故障现象</div>
+                  <p class="detail-text">{{ c.symptomText || '暂无详细描述' }}</p>
+                </div>
+                <div class="detail-section" v-if="c.cause">
+                  <div class="detail-label">根因分析</div>
+                  <p class="detail-text">{{ c.cause }}</p>
+                </div>
+                <div class="detail-section">
+                  <div class="detail-label">处置方案</div>
+                  <p class="detail-text solution-text">{{ c.solution || '暂无处置方案描述' }}</p>
+                </div>
+                <div class="detail-section tips" v-if="c.tipsText">
+                  <div class="detail-label">经验与建议</div>
+                  <p class="detail-text">{{ c.tipsText }}</p>
+                </div>
+                <div class="expand-arrow">▲ 收起</div>
+              </div>
+            </transition>
+
+            <div class="toggle-hint" v-if="!c._open">点击查看详情 ▼</div>
+          </div>
+        </div>
+        <div v-if="filteredCases.length === 0 && !_hydrating" class="empty-state">
+          <div class="empty-icon">▣</div>
+          <p>未找到匹配的案例</p>
+          <p class="empty-sub">尝试更换搜索关键词或选择其他分类</p>
+        </div>
+      </template>
+    </template>
   </div>
 </template>
 
 <script>
+import { listCasesApi, listCaseTagsApi, listReportsApi } from '../utils/api'
+
+const TAG_CLASS_MAP = {
+  '机械': 'blue',
+  '电气': 'green',
+  '液压': 'purple',
+  '仪表': 'cyan',
+  '安全': 'orange'
+}
+
+const LEVEL_MAP = {
+  'high': 'high',
+  'mid': 'medium',
+  'low': 'low'
+}
+
+const STATUS_LABEL = {
+  pending: '待审核',
+  approved: '审核通过',
+  rejected: '已驳回',
+  synced_case: '已入库案例',
+  synced_guide: '已入库指南'
+}
+
+function _formatDate(ts) {
+  if (!ts) return '—'
+  const d = new Date(Number(ts))
+  if (isNaN(d.getTime())) return '—'
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function _firstParagraph(text) {
+  if (!text) return ''
+  const t = String(text).trim()
+  const idx = t.search(/[\n。；;]/)
+  if (idx < 0) return t
+  return t.slice(0, idx + 1)
+}
+
+function _mapCase(raw) {
+  if (!raw) return null
+  const cause = raw.cause || ''
+  const summary = raw.summary || ''
+  const problem = cause || _firstParagraph(summary)
+  const tag = raw.tag || '机械'
+  const level = raw.level || 'mid'
+  const createdTs = Number(raw.created_at_ts) || 0
+  const symptomParts = []
+  if (raw.fault) symptomParts.push(String(raw.fault).trim())
+  if (summary) symptomParts.push(String(summary).trim())
+  const symptomText = symptomParts.filter(Boolean).join('。')
+  return {
+    id: raw.id,
+    title: raw.title || '（未命名案例）',
+    device: raw.device || '通用设备',
+    tag: tag,
+    tagClass: TAG_CLASS_MAP[tag] || 'blue',
+    fault: raw.fault || '现场故障',
+    cause: cause,
+    solution: raw.solution || '',
+    summary: summary,
+    level: level,
+    severity: LEVEL_MAP[level] || 'medium',
+    date: _formatDate(createdTs * 1000),
+    contributor_name: raw.contributor_name || '',
+    is_employee_contribution: !!raw.is_employee_contribution,
+    created_at_ts: createdTs,
+    _fromReport: !!raw.is_employee_contribution,
+    _userName: raw.contributor_name || '匿名用户',
+    _syncTime: createdTs * 1000,
+    problem: problem,
+    symptomText: symptomText,
+    tipsText: raw.tips || '',
+    _open: false
+  }
+}
+
 export default {
   name: 'Case',
   data() {
     return {
+      _hydrating: true,
       searchQuery: '',
       currentTag: '全部',
-      tagList: ['全部', '机械', '电气', '安全', '液压', '仪表'],
-      cases: [
-        {
-          title: '离心泵轴承过热故障分析',
-          tag: '机械',
-          tagClass: 'blue',
-          severity: 'high',
-          date: '2024-12-15',
-          summary: '某化工厂离心泵运行中轴承温度持续上升，最高达 95°C。经检查发现润滑脂老化变质，轴承滚道出现疲劳剥落。',
-          device: '离心泵',
-          fault: '轴承过热',
-          detail: {
-            symptom: '轴承端盖温度异常，运行时伴有沉闷金属摩擦声，振动值超标至 6.8mm/s。',
-            diagnosis: [
-              '使用测温枪测量轴承座各点温度，确认最高温度位于非驱动端轴承',
-              '采集振动频谱分析，出现明显的轴承缺陷特征频率',
-              '停机拆检后发现润滑脂碳化变黑，轴承滚道有明显疲劳剥落痕迹',
-              '核对检修记录，距上次注脂已运行 4200 小时，超过规定周期'
-            ],
-            solution: [
-              '更换同型号 SKF 6312-2RS 轴承一套',
-              '清洗轴承腔并重新加注牌号为 Shell Alvania EP2 的润滑脂',
-              '调整轴承间隙至 0.03~0.05mm 范围',
-              '更新润滑维护周期表，注脂周期设定为 3000 小时'
-            ],
-            tips: '高温环境下轴承润滑脂寿命会缩短 30%~50%，建议增加巡检频次。'
-          }
-        },
-        {
-          title: '三相电机启动困难处理',
-          tag: '电气',
-          tagClass: 'green',
-          severity: 'medium',
-          date: '2024-12-10',
-          summary: '电机启动时转速异常缓慢，电流持续偏高。检测发现定子绕组存在相间绝缘老化，需重绕线圈。',
-          device: '三相异步电机',
-          fault: '启动困难',
-          detail: {
-            symptom: '启动时间超过 15 秒，额定负载下无法达到额定转速，运行电流比正常值高 35%。',
-            diagnosis: [
-              '使用钳形电流表测量三相电流，发现三相不平衡度达 12%',
-              '用兆欧表测量绝缘电阻，相间绝缘仅 0.12MΩ，远低于 0.5MΩ 标准',
-              '直流电阻测试显示 A 相绕组电阻偏大 8%',
-              '拆检发现绕组端部有绝缘老化龟裂及局部烧蚀痕迹'
-            ],
-            solution: [
-              '拆除旧绕组并做好槽型及匝数记录',
-              '使用同规格 QZY-2 180 级耐高温漆包线重绕线圈',
-              '采用 VPI 真空压力浸漆工艺处理，150°C 烘干 12 小时',
-              '组装后完成空载、短路及温升试验合格'
-            ],
-            tips: '潮湿环境下的电机应每 3 个月测量一次绝缘电阻，不合格时需烘干处理。'
-          }
-        },
-        {
-          title: '减速箱齿轮磨损修复',
-          tag: '机械',
-          tagClass: 'blue',
-          severity: 'high',
-          date: '2024-12-05',
-          summary: '减速箱运行中出现周期性异响，拆解后发现高速级齿轮齿面点蚀严重，润滑油金属颗粒超标。',
-          device: '齿轮减速箱',
-          fault: '齿轮磨损',
-          detail: {
-            symptom: '减速箱有明显周期性异响，每转一圈出现一次冲击声，输出端有不规则跳动。',
-            diagnosis: [
-              '采集润滑油样做铁谱分析，发现大量齿轮磨损颗粒',
-              '振动频谱存在明显的齿轮啮合频率及其谐波',
-              '拆机检查高速级小齿轮，齿面出现 0.3mm 深的点蚀坑，分布在节圆附近',
-              '轴承轴向间隙检测为 0.25mm，超出 0.08mm 标准'
-            ],
-            solution: [
-              '更换同模数齿数的渗碳淬火齿轮副（材质 20CrMnTi）',
-              '更换输入端圆锥滚子轴承，调整轴向间隙至 0.04~0.06mm',
-              '清洗齿轮箱内部所有油路及油池',
-              '加注 ISO VG320 工业极压齿轮油至规定油位'
-            ],
-            tips: '更换齿轮后 500 小时需首次换油，之后按 5000 小时周期换油。'
-          }
-        },
-        {
-          title: 'PLC 控制系统通信故障',
-          tag: '电气',
-          tagClass: 'green',
-          severity: 'low',
-          date: '2024-11-28',
-          summary: '生产线 PLC 与上位机通信频繁中断。检查发现通信电缆屏蔽层接地不良，重新规范接地后恢复正常。',
-          device: 'PLC 系统',
-          fault: '通信中断',
-          detail: {
-            symptom: '上位机随机出现"通信超时"报警，每次持续 2~10 秒，每天发生 10~20 次不等。',
-            diagnosis: [
-              '抓取通信报文分析，存在大量 CRC 校验错误包',
-              '使用示波器测量通信线，发现共模干扰尖峰达 5V 以上',
-              '检查通信电缆走向，发现与动力电缆并行敷设距离超过 8 米',
-              '检测屏蔽层接地情况，发现两端均未有效接地，且屏蔽层有断点'
-            ],
-            solution: [
-              '更换带整体屏蔽的 Profibus DP 专用电缆',
-              '重新规划布线，与动力电缆间距保持 30cm 以上',
-              '通信屏蔽层在控制柜侧做单端可靠接地',
-              '在 DP 总线终端加装有源终端电阻器'
-            ],
-            tips: '工业通信线缆建议每两年做一次性能检测，包括衰减、阻抗、屏蔽连续性。'
-          }
-        },
-        {
-          title: '压力容器安全阀校验',
-          tag: '安全',
-          tagClass: 'orange',
-          severity: 'high',
-          date: '2024-11-20',
-          summary: '压力容器安全阀定期校验，发现起跳压力偏离设定值。清洗调整弹簧并重新校验合格。',
-          device: '压力容器',
-          fault: '安全阀异常',
-          detail: {
-            symptom: '年度送检校验，DN50 弹簧微启式安全阀起跳压力实测 1.12MPa，与整定值 1.0MPa 偏差 12%。',
-            diagnosis: [
-              '外观检查发现阀杆有轻微锈蚀痕迹',
-              '拆卸后发现弹簧表面有腐蚀斑点，刚度下降',
-              '密封面有微量积垢，可能导致阀门提前开启',
-              '核对使用记录：已连续使用 4 年未解体检查'
-            ],
-            solution: [
-              '使用金相砂纸逐道研磨密封面至镜面效果，做煤油渗漏试验合格',
-              '更换同规格弹簧（材料 50CrVA）',
-              '阀杆、导向套除锈、抛光，涂抹高温防卡剂',
-              '在专用校验台上重新整定开启压力至 1.0MPa，偏差控制在 ±3% 以内'
-            ],
-            tips: '安全阀一般每年至少校验一次；用于腐蚀性介质的应缩短校验周期。'
-          }
-        },
-        {
-          title: '输送带跑偏调整',
-          tag: '机械',
-          tagClass: 'blue',
-          severity: 'low',
-          date: '2024-11-15',
-          summary: '输送带运行时持续跑偏，调整托辊角度并张紧皮带后问题解决。需定期检查托辊转动灵活性。',
-          device: '皮带输送机',
-          fault: '跑偏',
-          detail: {
-            symptom: '皮带输送机长度 48m，带宽 B=800mm，运行时尾部向左侧跑偏 80mm，导致频繁撒料和边缘磨损。',
-            diagnosis: [
-              '空载运行观察跑偏位置，定位跑偏起始点在尾部改向滚筒处',
-              '检查头尾滚筒平行度，误差 5mm/米，超出标准',
-              '发现有 4 组托辊转动不灵活，其中 1 组卡死',
-              '尾部重锤张紧装置配重块数量不足 3 块，张力偏小'
-            ],
-            solution: [
-              '调整尾部改向滚筒左右张紧螺杆，使滚筒与机架中心线垂直度≤1mm/m',
-              '更换 4 组损坏托辊，润滑其余所有托辊轴承',
-              '添加张紧配重 3 块，使张紧力符合设计值',
-              '在跑偏段加装 2 组自动调心托辊组做辅助纠偏'
-            ],
-            tips: '每次开机前应空转一周检视皮带状态；运行初期 30 分钟是跑偏易发期。'
-          }
-        },
-        {
-          title: '液压系统油温过高处理',
-          tag: '液压',
-          tagClass: 'purple',
-          severity: 'medium',
-          date: '2024-11-08',
-          summary: '注塑机液压系统连续运行 2 小时后油温超过 75°C，报警停机。清洗冷却器、更换液压油后恢复正常。',
-          device: '液压系统',
-          fault: '油温过高',
-          detail: {
-            symptom: '系统压力正常但油温持续升高，超过 75°C 触发高温保护停机，冷却器进出口温差不足 3°C。',
-            diagnosis: [
-              '检查冷却水管路，流量正常但散热效果差',
-              '拆解冷却器发现列管内壁结垢严重，厚度约 1.5mm',
-              '油液检测发现黏度下降 22%，酸值超标',
-              '溢流阀存在内泄，阀芯磨损导致节流发热增加'
-            ],
-            solution: [
-              '对冷却器做化学除垢清洗，并做水压试验合格',
-              '更换全部 L-HM46 抗磨液压油，清洗油箱和过滤器',
-              '解体清洗溢流阀，配研阀芯或更换新阀',
-              '增设 45°C 自动启风扇、60°C 报警的温度控制策略'
-            ],
-            tips: '液压系统推荐工作温度 30~60°C；长期超过 70°C 会大幅缩短密封件寿命。'
-          }
-        },
-        {
-          title: '压力变送器示值偏差校准',
-          tag: '仪表',
-          tagClass: 'cyan',
-          severity: 'low',
-          date: '2024-10-30',
-          summary: '蒸汽管道压力变送器示值偏高 6%，现场校准后恢复准确。发现是引压管积液导致零点漂移。',
-          device: '压力变送器',
-          fault: '示值偏差',
-          detail: {
-            symptom: 'DCS 显示压力 2.35MPa，经标准压力表比对实测为 2.21MPa，偏差约 6%。',
-            diagnosis: [
-              '对变送器做 4~20mA 输出校验，线性误差在允许范围内',
-              '检查零点发现有正偏移 0.14MPa，对应引压管液柱高度约 10m',
-              '拆开引压管排放阀，放出约 150mL 冷凝水',
-              '确认变送器安装位置低于取压点，未安装冷凝罐'
-            ],
-            solution: [
-              '在引压管根部加装Φ100mm 冷凝罐，防止蒸汽直接进入变送器',
-              '对变送器做零点迁移调整，扣除残余液柱静压影响',
-              '重新对 0、50%、100% 三点做三点校准，误差≤0.2%FS',
-              'DCS 量程与变送器保持一致，更新仪表台账'
-            ],
-            tips: '蒸汽压力测量建议在取压点附近安装冷凝罐，并定期（每月一次）排放积液。'
-          }
-        },
-        {
-          title: '电动执行器无法全开',
-          tag: '仪表',
-          tagClass: 'cyan',
-          severity: 'medium',
-          date: '2024-10-22',
-          summary: 'DN200 电动调节阀运行中开到 85% 就无法继续，原因是限位开关凸轮移位，重新调整后正常。',
-          device: '电动执行器',
-          fault: '无法全开',
-          detail: {
-            symptom: 'DCS 给定 100% 开度指令，阀门只走到 85% 就停止，手动操作也无法继续打开。',
-            diagnosis: [
-              '测量执行器输入输出信号，DCS 给 20mA，执行器反馈只有 18.6mA，开位信号已触发',
-              '拆开执行器电气罩，检查全开限位开关，发现已提前闭合',
-              '检查行程凸轮紧固螺钉，有松动迹象',
-              '对比阀杆行程标记，确实还有 15% 机械行程未使用'
-            ],
-            solution: [
-              '先将执行器切换到就地手动模式',
-              '手动摇到阀门机械全开位置，固定好阀杆',
-              '重新调整全开限位凸轮使其刚好动作，同时调整电位器对应 20mA 输出',
-              '做全程开关试验 3 次，验证开度与信号线性一致'
-            ],
-            tips: '每 6 个月对阀门行程限位与反馈做一次核对，特别是工艺改造或检修后必须重新标定。'
-          }
-        }
-      ]
+      currentSource: 'all',
+      tagList: ['全部'],
+      allCases: [],
+      myReports: [],
+      casesLoading: false,
+      tagsLoading: false,
+      mineLoading: false
+    }
+  },
+  async created() {
+    this._hydrating = true
+    try {
+      await Promise.all([
+        this.loadAllCases(),
+        this.loadAllTags(),
+        this.loadMyReports()
+      ])
+    } finally {
+      this._hydrating = false
     }
   },
   computed: {
+    totalCaseCount() {
+      return this.allCases.length
+    },
+    employeeCaseCount() {
+      return this.allCases.filter(c => c._fromReport).length
+    },
+    officialCases() {
+      return this.allCases.filter(c => !c._fromReport)
+    },
+    employeeCases() {
+      return this.allCases.filter(c => c._fromReport)
+    },
+    sourceTabs() {
+      return [
+        { key: 'all',      label: '全部案例',   icon: '▣',  count: this.allCases.length },
+        { key: 'official', label: '官方知识库', icon: '📚', count: this.officialCases.length },
+        { key: 'employee', label: '员工贡献',   icon: '📝', count: this.employeeCases.length },
+        { key: 'mine',     label: '我的贡献',   icon: '👤', count: this.myReports.length }
+      ]
+    },
+    sourceCases() {
+      switch (this.currentSource) {
+        case 'official':
+          return this.officialCases
+        case 'employee':
+          return this.employeeCases
+        case 'all':
+        default:
+          return this.allCases
+      }
+    },
     filteredCases() {
-      let list = this.cases
+      let list = this.sourceCases
       if (this.currentTag !== '全部') {
         list = list.filter(c => c.tag === this.currentTag)
       }
       const q = this.searchQuery.trim().toLowerCase()
       if (q) {
         list = list.filter(c =>
-          c.title.toLowerCase().includes(q) ||
-          c.device.toLowerCase().includes(q) ||
-          c.fault.toLowerCase().includes(q) ||
-          c.summary.toLowerCase().includes(q)
+          (c.title || '').toLowerCase().includes(q) ||
+          (c.device || '').toLowerCase().includes(q) ||
+          (c.fault || '').toLowerCase().includes(q) ||
+          (c.summary || '').toLowerCase().includes(q) ||
+          (c.problem || '').toLowerCase().includes(q) ||
+          (c.solution || '').toLowerCase().includes(q) ||
+          (c.cause || '').toLowerCase().includes(q)
+        )
+      }
+      return list
+    },
+    filteredMyReports() {
+      let list = this.myReports
+      const q = this.searchQuery.trim().toLowerCase()
+      if (q) {
+        list = list.filter(r =>
+          (r.title || '').toLowerCase().includes(q) ||
+          (r.device || '').toLowerCase().includes(q) ||
+          (r.problem || '').toLowerCase().includes(q) ||
+          (r.fault_type || '').toLowerCase().includes(q) ||
+          (r.summary || '').toLowerCase().includes(q)
         )
       }
       return list
     }
   },
   methods: {
+    async loadAllCases(force = false) {
+      this.casesLoading = true
+      try {
+        const p = await listCasesApi({ page: 1, size: 20000, source: 'all' }) || {}
+        const items = p.items || []
+        this.allCases = items.map(r => _mapCase(r)).filter(Boolean)
+      } catch (e) {
+        if (force || this.allCases.length === 0) {
+          console.error('案例加载失败:', e)
+        }
+      } finally {
+        this.casesLoading = false
+      }
+    },
+    async loadAllTags(force = false) {
+      this.tagsLoading = true
+      try {
+        const realTags = await listCaseTagsApi() || []
+        const arr = Array.isArray(realTags) ? realTags : (realTags.items || [])
+        const cleanTags = arr.map(t => (typeof t === 'string' ? t : (t.name || t.label || t.tag || ''))).filter(Boolean)
+        this.tagList = ['全部', ...cleanTags]
+      } catch (e) {
+        if (force || this.tagList.length <= 1) {
+          this.tagList = ['全部', '机械', '电气', '液压', '仪表', '安全']
+        }
+      } finally {
+        this.tagsLoading = false
+      }
+    },
+    async loadMyReports(force = false) {
+      this.mineLoading = true
+      try {
+        const p = await listReportsApi({ page: 1, size: 20000, scope: 'mine' }) || {}
+        this.myReports = p.items || []
+      } catch (e) {
+        if (force || this.myReports.length === 0) {
+          console.error('我的报告加载失败:', e)
+        }
+      } finally {
+        this.mineLoading = false
+      }
+    },
     toggleCase(c) {
       this.$set(c, '_open', !c._open)
     },
     severityText(s) {
-      return { low: '一般', medium: '较重', high: '严重' }[s] || '一般'
+      return ({ low: '一般', medium: '较重', high: '严重' })[s] || '一般'
+    },
+    formatDate(ts) {
+      return _formatDate(ts)
+    },
+    statusLabel(s) {
+      return STATUS_LABEL[s] || (s || '未知')
     }
   }
 }
@@ -372,6 +422,54 @@ export default {
 
 .page-desc {
   color: var(--text-secondary);
+}
+
+/* 来源 Tab */
+.source-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+.source-tab:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+.source-tab.active {
+  background: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 0 1px rgba(0,212,255,0.25);
+  font-weight: 600;
+}
+.st-icon { font-size: 1rem; }
+.st-count {
+  padding: 2px 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.source-tab.active .st-count {
+  background: var(--primary);
+  color: #04141f;
 }
 
 /* 工具栏 */
@@ -442,6 +540,10 @@ export default {
   cursor: pointer;
   position: relative;
   overflow: hidden;
+}
+
+.case-card.mine-card {
+  cursor: default;
 }
 
 .case-card.expanded {
@@ -539,6 +641,7 @@ export default {
   font-size: 0.875rem;
   color: var(--text-secondary);
   line-height: 1.7;
+  white-space: pre-wrap;
 }
 
 .detail-list {
@@ -617,5 +720,158 @@ export default {
   margin-top: 4px;
   font-size: 0.8125rem !important;
   color: var(--text-muted) !important;
+}
+
+/* 来自知识报告的卡片样式 */
+.case-card {
+  position: relative;
+  overflow: hidden;
+}
+.case-card.from-report {
+  border-left: 3px solid var(--accent-amber, #ffa502);
+  background: linear-gradient(180deg, rgba(255,165,2,0.04), transparent 40%);
+}
+.case-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 4px 12px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border-bottom-left-radius: var(--radius);
+}
+.report-badge {
+  background: linear-gradient(135deg, var(--accent-amber), #ff7a00);
+  color: #fff;
+}
+.case-contributor {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.case-contributor b {
+  color: var(--accent-amber);
+  font-weight: 600;
+}
+.contrib-icon { opacity: 0.8; }
+.contrib-time { opacity: 0.75; }
+
+.solution-text {
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+
+/* 我的贡献卡片 */
+.mine-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 8px;
+}
+.mine-type-chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.5px;
+}
+.mine-type-chip.type-case {
+  color: var(--primary);
+  background: var(--primary-subtle);
+}
+.mine-type-chip.type-guide {
+  color: var(--accent-green);
+  background: rgba(0, 255, 136, 0.1);
+}
+.mine-status-badge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 4px;
+}
+.mine-status-badge.status-pending {
+  color: #eab308;
+  background: rgba(234, 179, 8, 0.12);
+}
+.mine-status-badge.status-approved {
+  color: var(--accent-green);
+  background: rgba(0, 255, 136, 0.1);
+}
+.mine-status-badge.status-rejected {
+  color: var(--accent-red);
+  background: rgba(239, 68, 68, 0.1);
+}
+.mine-status-badge.status-synced_case,
+.mine-status-badge.status-synced_guide {
+  color: var(--primary);
+  background: var(--primary-subtle);
+}
+.mine-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 10px;
+}
+.mine-summary {
+  margin-bottom: 10px;
+}
+.mine-review {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.review-label {
+  color: var(--accent-orange);
+  font-weight: 600;
+}
+.review-text {
+  color: var(--text-secondary);
+}
+
+/* 骨架屏 */
+.skeleton-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+}
+.skeleton-wrap.inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.skeleton-tag {
+  display: block;
+  height: 30px;
+  width: 70px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(0,212,255,0.10) 50%, rgba(255,255,255,0.03) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shine 1.4s ease-in-out infinite;
+}
+.skeleton-card {
+  cursor: default;
+  pointer-events: none;
+}
+.skeleton-block {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(0,212,255,0.10) 50%, rgba(255,255,255,0.03) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shine 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shine {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 </style>

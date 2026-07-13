@@ -1,6 +1,10 @@
-const TOKEN_KEY = 'equipai_token'
-const USER_KEY = 'equipai_user'
-const AVATAR_KEY = 'equipai_avatar'
+import {
+  getToken as _getToken, setToken as _setToken,
+  getUser as _getUser, setUser as _setUser,
+  getAvatar as _getAvatar, setAvatar as _setAvatar,
+  isLoggedIn as _isLoggedIn, logout as _logout, authState, login as _login,
+  hydrateAuth, refreshUserFromMe as _refreshUserFromMe
+} from '../stores/authStore'
 
 const svg1 = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'>
 <defs>
@@ -120,59 +124,26 @@ export function resolveAvatarSrc(value) {
   return value
 }
 
-export function getAvatar() {
-  return localStorage.getItem(AVATAR_KEY) || ''
-}
+export function getToken() { return _getToken() }
+export function setToken(t) { return _setToken(t) }
+export function removeToken() { return _setToken(null) }
 
-export function setAvatar(value) {
-  localStorage.setItem(AVATAR_KEY, value || '')
-  try {
-    window.dispatchEvent(new CustomEvent('equipai-avatar-changed', { detail: { value: value || '' } }))
-  } catch (_) {}
-}
+export function getUser() { return _getUser() }
+export function setUser(u) { return _setUser(u) }
+export function removeUser() { return _setUser(null) }
 
-export function removeAvatar() {
-  localStorage.removeItem(AVATAR_KEY)
-  try {
-    window.dispatchEvent(new CustomEvent('equipai-avatar-changed', { detail: { value: '' } }))
-  } catch (_) {}
-}
+export function getAvatar() { return _getAvatar() }
+export function setAvatar(v) { return _setAvatar(v) }
+export function removeAvatar() { return _setAvatar('') }
 
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
-}
+export function isLoggedIn() { return _isLoggedIn() }
 
-export function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token)
-}
+export function login(user, token, avatar) { return _login(user, token, avatar) }
 
-export function removeToken() {
-  localStorage.removeItem(TOKEN_KEY)
-}
+export function logout() { return _logout() }
 
-export function getUser() {
-  const raw = localStorage.getItem(USER_KEY)
-  try {
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
+export function hydrateAuthFromStore() { hydrateAuth() }
 
-export function setUser(user) {
-  localStorage.setItem(USER_KEY, JSON.stringify(user))
-}
+export function refreshUserFromMe(me) { return _refreshUserFromMe(me) }
 
-export function removeUser() {
-  localStorage.removeItem(USER_KEY)
-}
-
-export function isLoggedIn() {
-  return !!getToken()
-}
-
-export function logout() {
-  removeToken()
-  removeUser()
-  removeAvatar()
-}
+export { authState }

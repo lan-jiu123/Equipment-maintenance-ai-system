@@ -3,7 +3,7 @@ ROLE_MANAGER = "manager"
 ROLE_WORKER = "worker"
 
 ROLE_LABELS = {
-    ROLE_SYSADMIN: "系统管理员",
+    ROLE_SYSADMIN: "维修管理员",
     ROLE_MANAGER: "维修管理员",
     ROLE_WORKER: "维修工"
 }
@@ -11,9 +11,27 @@ ROLE_LABELS = {
 fake_users = {
     "admin": {
         "username": "admin",
-        "password": "123456",
+        "password": "ad1234",
         "role": ROLE_SYSADMIN,
-        "fullname": "系统管理员"
+        "fullname": "赵五"
+    },
+    "worker1": {
+        "username": "worker1",
+        "password": "123456",
+        "role": ROLE_WORKER,
+        "fullname": "李建华"
+    },
+    "worker2": {
+        "username": "worker2",
+        "password": "234567",
+        "role": ROLE_WORKER,
+        "fullname": "张伟"
+    },
+    "worker3": {
+        "username": "worker3",
+        "password": "345678",
+        "role": ROLE_WORKER,
+        "fullname": "黄丽"
     },
     "manager": {
         "username": "manager",

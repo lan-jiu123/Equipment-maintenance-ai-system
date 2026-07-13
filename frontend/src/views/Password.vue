@@ -5,7 +5,7 @@
         <h1 class="page-title">🔐 修改密码</h1>
         <p class="page-sub">请定期更换密码以确保账户安全</p>
       </div>
-      <router-link class="btn btn-outline btn-sm" to="/home">← 返回仪表盘</router-link>
+      <router-link class="btn btn-outline btn-sm" :to="backBtnPath">← {{ backBtnText }}</router-link>
     </div>
 
     <div class="pwd-wrap">
@@ -104,7 +104,7 @@
           <li>请勿使用与姓名、生日相关的易猜测密码</li>
           <li>密码建议每 90 天更换一次</li>
           <li>不要在其他平台使用相同的账户密码</li>
-          <li>如忘记密码，请联系系统管理员重置</li>
+          <li>如忘记密码，请联系维修管理员重置</li>
           <li>本次修改后所有已登录设备将重新要求登录</li>
         </ul>
 
@@ -128,6 +128,8 @@
 </template>
 
 <script>
+import { getUser } from '../utils/auth'
+
 export default {
   name: 'Password',
   data() {
@@ -150,6 +152,16 @@ export default {
   computed: {
     expirePct() {
       return Math.max(0, Math.min(100, (this.remainDays / 90) * 100))
+    },
+    isWorker() {
+      const u = getUser()
+      return !!(u && u.role === 'worker')
+    },
+    backBtnText() {
+      return this.isWorker ? '返回工作台' : '返回仪表盘'
+    },
+    backBtnPath() {
+      return this.isWorker ? '/desk' : '/home'
     }
   },
   methods: {

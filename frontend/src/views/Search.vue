@@ -79,22 +79,54 @@
           </button>
         </div>
       </form>
+
+      <!-- AI 未解决 → 贡献方案入口 -->
+      <div v-if="messages.length > 0" class="contrib-row card">
+        <div class="contrib-left">
+          <span class="contrib-icon">💡</span>
+          <div class="contrib-text">
+            <div class="contrib-title">AI 没有解决您的问题？</div>
+            <div class="contrib-sub">您的现场实践方案，经管理员审核后将写入知识库，帮助更多同事</div>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-sm contrib-btn" @click="openContrib">
+          📝 贡献实践方案 →
+        </button>
+      </div>
+
+      <!-- 提交成功提示 -->
+      <transition name="toast">
+        <div v-if="toast" class="toast">{{ toast }}</div>
+      </transition>
     </div>
   </div>
+
+  <KnowledgeReport
+    :visible="reportVisible"
+    :preset="reportPreset"
+    source="search"
+    @update:visible="v => reportVisible = v"
+    @submitted="onReportSubmitted"
+  />
 </template>
 
 <script>
+import KnowledgeReport from '../components/KnowledgeReport.vue'
+
 const STORAGE_KEY = 'equipai_search_history'
 const MAX_HISTORY = 10
 
 export default {
   name: 'Search',
+  components: { KnowledgeReport },
   data() {
     return {
       question: '',
       messages: [],
       loading: false,
       savedSessions: [],
+      reportVisible: false,
+      toast: '',
       examples: [
         '离心泵运行时轴承温度超过 80°C，伴随异常振动',
         '电机启动困难，且运行电流明显偏高',
@@ -106,6 +138,20 @@ export default {
   computed: {
     hasHistory() {
       return this.savedSessions.length > 0
+    },
+    reportPreset() {
+      const userQ = this.messages.filter(m => m.role === 'user').slice(-1)[0]
+      return {
+        type: 'case',
+        title: userQ ? (userQ.content || '').slice(0, 60) : '',
+        device: '',
+        level: 'mid',
+        question: userQ
+          ? ('用户检索问题：' + userQ.content + '\n\nAI 给出的方案不够具体/未解决实际问题，现场情况与 AI 建议有出入：（请补充实际差异）')
+          : '',
+        solution: '',
+        ticketId: ''
+      }
     }
   },
   created() {
@@ -115,6 +161,13 @@ export default {
     this.$nextTick(() => this.scrollToBottom())
   },
   methods: {
+    openContrib() {
+      this.reportVisible = true
+    },
+    onReportSubmitted(rec) {
+      this.toast = `✅ 报告「${rec.id}」提交成功，管理员将尽快审核`
+      setTimeout(() => this.toast = '', 3500)
+    },
     handleKeydown(e) {
       if (e.ctrlKey && e.key === 'Enter') {
         e.preventDefault()
@@ -469,4 +522,51 @@ export default {
   flex-shrink: 0;
   padding: 10px 22px;
 }
+
+/* 贡献入口 */
+.contrib-row {
+  margin-top: 20px;
+  padding: 14px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  background: linear-gradient(135deg, rgba(168,85,247,0.1), rgba(0,212,255,0.08));
+  border: 1px dashed var(--border-active);
+}
+.contrib-left { display: flex; gap: 14px; align-items: center; }
+.contrib-icon {
+  font-size: 1.75rem;
+  filter: drop-shadow(0 0 8px rgba(255,165,2,0.4));
+}
+.contrib-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.contrib-sub {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 3px;
+}
+.contrib-btn { font-size: 0.8125rem; padding: 8px 16px; }
+.btn-sm { padding: 8px 16px; font-size: 0.8125rem; }
+
+/* Toast */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  padding: 12px 24px;
+  background: var(--accent-green);
+  color: #052e16;
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(0,255,136,0.3), 0 0 0 2px rgba(0,255,136,0.15);
+  z-index: 9999;
+}
+.toast-enter-active, .toast-leave-active { transition: all 0.3s; }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translate(-50%, 20px); }
 </style>

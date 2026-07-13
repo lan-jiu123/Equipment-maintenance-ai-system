@@ -2,11 +2,24 @@
   <div class="container">
     <header class="page-header">
       <h1 class="page-title">作业指导</h1>
-      <p class="page-desc">标准操作流程与安全规范 · 共 {{ steps.length }} 项作业规程</p>
+      <p class="page-desc">标准操作流程与安全规范 · 共 {{ filteredSteps.length }} 项作业规程 · 员工贡献 {{ employeeGuideCount }} 项</p>
     </header>
 
-    <!-- 工具栏 -->
-    <div class="guide-toolbar">
+    <div class="source-tabs">
+      <button
+        v-for="t in sourceTabs"
+        :key="t.key"
+        class="source-tab"
+        :class="{ active: currentSource === t.key }"
+        @click="currentSource = t.key"
+      >
+        <span class="st-icon">{{ t.icon }}</span>
+        <span class="st-label">{{ t.label }}</span>
+        <span class="st-count">{{ t.count }}</span>
+      </button>
+    </div>
+
+    <div class="guide-toolbar" v-if="currentSource !== 'mine'">
       <div class="search-bar">
         <span class="search-icon">⌕</span>
         <input
@@ -30,8 +43,7 @@
       </div>
     </div>
 
-    <!-- 进度概览 -->
-    <div class="progress-summary card" v-if="currentCat === '全部'">
+    <div class="progress-summary card" v-if="currentCat === '全部' && currentSource !== 'mine' && !loadingGuides">
       <div class="progress-item" v-for="s in summaryStats" :key="s.name">
         <div class="progress-name">{{ s.name }}</div>
         <div class="progress-bar-wrap">
@@ -41,262 +53,228 @@
       </div>
     </div>
 
-    <!-- 时间线 -->
-    <div class="timeline">
-      <div v-for="(step, i) in filteredSteps" :key="i" class="timeline-item">
-        <div class="timeline-marker">
-          <div class="timeline-dot" :class="'cat-' + catClass(step.cat)"></div>
-          <div v-if="i < filteredSteps.length - 1" class="timeline-line" :class="'line-' + catClass(step.cat)"></div>
-        </div>
-        <div class="timeline-content card" @click="step.open = !step.open">
-          <div class="step-header">
-            <div class="step-header-left">
-              <span class="step-num">STEP {{ String(i + 1).padStart(2, '0') }}</span>
-              <span class="step-cat-chip" :class="'cat-' + catClass(step.cat)">{{ step.cat }}</span>
-            </div>
-            <h3 class="step-title">{{ step.title }}</h3>
-            <span class="step-toggle">{{ step.open ? '▲' : '▼' }}</span>
-          </div>
-          <transition name="expand">
-            <div v-show="step.open" class="step-body">
-              <p class="step-desc">{{ step.desc }}</p>
-              <div class="step-checklist" v-if="step.checklist && step.checklist.length">
-                <div
-                  v-for="(chk, ci) in step.checklist"
-                  :key="ci"
-                  class="check-item"
-                  :class="{ checked: step._done?.[ci] }"
-                  @click.stop="toggleCheck(step, ci)"
-                >
-                  <span class="check-box">{{ step._done?.[ci] ? '✓' : '' }}</span>
-                  <span class="check-text">{{ chk }}</span>
-                </div>
-              </div>
-              <div class="step-refs" v-if="step.refs && step.refs.length">
-                <span class="refs-label">相关参考：</span>
-                <span class="ref-tag" v-for="(r, ri) in step.refs" :key="ri">{{ r }}</span>
-              </div>
-              <div v-if="step.warn" class="step-warn">
-                <span class="warn-icon">⚠</span>
-                <span class="warn-text">{{ step.warn }}</span>
-              </div>
-              <div class="step-footer" v-if="step.estimate">
-                <span class="estimate">⏱ 预计用时：{{ step.estimate }}</span>
-              </div>
-            </div>
-          </transition>
+    <template v-if="currentSource === 'mine'">
+      <div v-if="loadingReports" class="skeleton-grid">
+        <div v-for="n in 6" :key="n" class="card skeleton-card">
+          <div class="skeleton-line skeleton-title"></div>
+          <div class="skeleton-line" style="width: 60%"></div>
+          <div class="skeleton-line" style="width: 80%"></div>
+          <div class="skeleton-line" style="width: 50%"></div>
         </div>
       </div>
-    </div>
+      <div v-else class="case-grid">
+        <div
+          v-for="(r, i) in myReports"
+          :key="'report-' + (r.id || i)"
+          class="case-card card"
+          :class="{ expanded: r._open }"
+          @click="r._open = !r._open"
+        >
+          <div class="case-top">
+            <span class="case-tag" :class="catClass(r.device_type)">{{ r.device_type || '通用' }}</span>
+            <span class="status-badge" :class="'status-' + (r.status || 'pending')">{{ statusText(r.status) }}</span>
+          </div>
+          <h3 class="case-title">{{ r.title }}</h3>
+          <p class="case-summary">{{ (r.problem || r.solution || '暂无描述').slice(0, 100) }}{{ ((r.problem || r.solution || '').length > 100 ? '...' : '') }}</p>
+          <div class="case-meta">
+            <span class="meta-item">◈ {{ r.device || '通用设备' }}</span>
+            <span class="meta-item">◎ {{ formatDate(r.created_at_ts * 1000) }}</span>
+          </div>
+          <div class="case-contributor">
+            <span class="contrib-icon">⏱</span>
+            <span>提交时间：{{ formatDate(r.created_at_ts * 1000) }}</span>
+          </div>
+          <transition name="expand">
+            <div v-show="r._open" class="case-detail">
+              <div class="detail-section">
+                <div class="detail-label">问题描述</div>
+                <p class="detail-text">{{ r.problem || '—' }}</p>
+              </div>
+              <div class="detail-section">
+                <div class="detail-label">解决方案</div>
+                <p class="detail-text solution-text">{{ r.solution || '—' }}</p>
+              </div>
+              <div class="detail-section tips" v-if="r.review_remark">
+                <div class="detail-label">审核备注</div>
+                <p class="detail-text">{{ r.review_remark }}</p>
+              </div>
+              <div class="expand-arrow">▲ 收起</div>
+            </div>
+          </transition>
+          <div class="toggle-hint" v-if="!r._open">点击查看详情 ▼</div>
+        </div>
+      </div>
+      <div v-if="!loadingReports && myReports.length === 0" class="empty-state">
+        <div class="empty-icon">👤</div>
+        <p>您还没有提交过知识贡献</p>
+        <p class="empty-sub">通过工单系统提交的解决方案会在这里展示</p>
+      </div>
+    </template>
 
-    <!-- 空状态 -->
-    <div v-if="filteredSteps.length === 0" class="empty-state">
-      <div class="empty-icon">⇢</div>
-      <p>未找到匹配的作业步骤</p>
-    </div>
+    <template v-else>
+      <div v-if="loadingGuides || loadingTypes" class="timeline">
+        <div v-for="n in 5" :key="'sk-' + n" class="timeline-item">
+          <div class="timeline-marker">
+            <div class="timeline-dot skeleton-dot"></div>
+            <div v-if="n < 5" class="timeline-line line-blue"></div>
+          </div>
+          <div class="timeline-content card skeleton-card">
+            <div class="skeleton-line skeleton-title"></div>
+            <div class="skeleton-line" style="width: 40%"></div>
+            <div class="skeleton-line" style="width: 90%"></div>
+            <div class="skeleton-line" style="width: 70%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div v-else class="timeline">
+        <div v-for="(step, i) in filteredSteps" :key="'guide-' + (step.id || i)" class="timeline-item" :class="{ 'from-report': step._fromReport }">
+          <div class="timeline-marker">
+            <div class="timeline-dot" :class="'cat-' + catClass(step.cat)"></div>
+            <div v-if="i < filteredSteps.length - 1" class="timeline-line" :class="'line-' + catClass(step.cat)"></div>
+          </div>
+          <div class="timeline-content card" @click="step.open = !step.open">
+            <div class="step-header">
+              <div class="step-header-left">
+                <span class="step-num">STEP {{ String(i + 1).padStart(2, '0') }}</span>
+                <span class="step-cat-chip" :class="'cat-' + catClass(step.cat)">{{ step.cat }}</span>
+                <span v-if="step._fromReport" class="step-badge report-badge" title="来自员工知识贡献">📝 员工贡献</span>
+              </div>
+              <h3 class="step-title">{{ step.title }}</h3>
+              <span class="step-toggle">{{ step.open ? '▲' : '▼' }}</span>
+            </div>
+            <transition name="expand">
+              <div v-show="step.open" class="step-body">
+                <p class="step-desc">{{ step.desc }}</p>
+                <div class="step-checklist" v-if="step.checklist && step.checklist.length">
+                  <div
+                    v-for="(chk, ci) in step.checklist"
+                    :key="ci"
+                    class="check-item"
+                    :class="{ checked: step._done && step._done[ci] }"
+                    @click.stop="toggleCheck(step, ci)"
+                  >
+                    <span class="check-box">{{ step._done && step._done[ci] ? '✓' : '' }}</span>
+                    <span class="check-text">{{ chk }}</span>
+                  </div>
+                </div>
+                <div class="step-refs" v-if="step.refs && step.refs.length">
+                  <span class="refs-label">相关参考：</span>
+                  <span class="ref-tag" v-for="(r, ri) in step.refs" :key="ri">{{ r }}</span>
+                </div>
+                <div v-if="step.warn" class="step-warn">
+                  <span class="warn-icon">⚠</span>
+                  <span class="warn-text">{{ step.warn }}</span>
+                </div>
+                <div class="step-footer" v-if="step.estimate || step._userName">
+                  <span class="estimate" v-if="step.estimate">⏱ 预计用时：{{ step.estimate }}</span>
+                  <span class="step-contributor" v-if="step._userName">🧑 贡献人：<b>{{ step._userName }}</b> · 入库 {{ formatDate(step._syncTime) }}</span>
+                </div>
+                <div class="step-review" v-if="step._fromReport && step._remark">
+                  <span class="review-label">💡 审核备注：</span>
+                  <span class="review-text">{{ step._remark }}</span>
+                </div>
+              </div>
+            </transition>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="!loadingGuides && !loadingTypes && filteredSteps.length === 0" class="empty-state">
+        <div class="empty-icon">⇢</div>
+        <p>未找到匹配的作业步骤</p>
+      </div>
+    </template>
   </div>
 </template>
 
 <script>
+import { listGuidesApi, listGuideTypesApi, listReportsApi } from '../utils/api'
+
 export default {
   name: 'Guide',
   data() {
     return {
       currentCat: '全部',
+      currentSource: 'all',
       searchQuery: '',
-      categories: ['全部', '机械', '电气', '安全', '液压', '仪表'],
-      steps: [
-        {
-          cat: '机械',
-          title: '拆卸前的准备工作',
-          desc: '确认设备已完全停止运转，电源已切断并挂锁。准备好专用工具和清洁布，对零部件进行编号标记。',
-          warn: '必须确保设备完全停止，禁止带载操作',
-          estimate: '15 分钟',
-          checklist: [
-            '确认停机挂牌（LOTO）已落实',
-            '介质出入口阀门已关闭并泄压',
-            '专用工具、量具已备齐并校验',
-            '零件编号标签准备完毕'
-          ],
-          refs: ['设备操作规程 §3.2', 'LOTO 安全管理制度'],
-          open: true
-        },
-        {
-          cat: '机械',
-          title: '轴承拆卸与检查',
-          desc: '使用拉马或液压工具均匀施力拆卸轴承。检查轴颈表面是否有磨损、划痕或腐蚀。测量轴颈尺寸，超出公差范围需更换。',
-          estimate: '40 分钟',
-          checklist: [
-            '选择合适规格的三爪拉马',
-            '施力方向与轴心保持一致',
-            '轴颈表面清洁后做外观检查',
-            '用千分尺测量轴颈圆度与圆柱度'
-          ],
-          refs: ['滚动轴承检修规程 §4.1'],
-          open: false
-        },
-        {
-          cat: '机械',
-          title: '轴与联轴器对中校正',
-          desc: '使用双表法测量径向和端面跳动，通过垫片调整电机底座，确保对中偏差在允许范围内。',
-          warn: '严禁在运行状态下进行对中调整',
-          estimate: '60 分钟',
-          checklist: [
-            '装好磁力表架，表针预压 1~2mm',
-            '记录 0°、90°、180°、270° 四点读数',
-            '径向偏差 ≤ 0.05mm，端面偏差 ≤ 0.03mm',
-            '紧固地脚螺栓后复核对中值'
-          ],
-          refs: ['联轴器对中作业指导书'],
-          open: false
-        },
-        {
-          cat: '电气',
-          title: '电机绕组检测',
-          desc: '使用兆欧表测量绕组绝缘电阻，不低于 0.5MΩ。检查接线端子有无松动、烧蚀痕迹。',
-          warn: '测试前必须断电并放电',
-          estimate: '20 分钟',
-          checklist: [
-            '电机三相电源已断开并挂牌',
-            '绕组对地充分放电（至少 1 分钟）',
-            '500V 兆欧表测量相间/对地绝缘',
-            '记录温度并换算至基准温度'
-          ],
-          refs: ['电机定期试验规程 §5'],
-          open: false
-        },
-        {
-          cat: '电气',
-          title: '配电柜停电检修作业',
-          desc: '执行停电、验电、挂地线、挂牌等安全步骤后再进行检修作业。',
-          warn: '必须严格执行"两票三制"，严禁约时停送电',
-          estimate: '30 分钟',
-          checklist: [
-            '办理工作票并获得许可',
-            '操作票顺序停电并确认',
-            '用合格验电器逐相验电',
-            '在来电侧挂设三相短路接地线'
-          ],
-          refs: ['电业安全工作规程（发电厂和变电站部分）'],
-          open: false
-        },
-        {
-          cat: '电气',
-          title: '变频器参数备份与调试',
-          desc: '检修前通过操作面板或调试软件备份全部参数，装配完成后按负载特性重新核对关键参数。',
-          estimate: '25 分钟',
-          checklist: [
-            '记录型号、固件版本与 SN 号',
-            '使用专用软件或 SD 卡备份参数组',
-            '核对电机铭牌参数（功率/电压/电流/极数）',
-            '空载试运行并检查 U/f 曲线及电流波形'
-          ],
-          refs: ['变频器调试手册 §3'],
-          open: false
-        },
-        {
-          cat: '机械',
-          title: '密封件更换',
-          desc: '清理密封腔，检查轴套磨损。新密封件安装前涂抹适量润滑脂，注意方向正确。',
-          estimate: '25 分钟',
-          checklist: [
-            '核对新密封件型号、材质、尺寸',
-            '密封腔及轴套无残留与划伤',
-            '弹簧侧朝向介质侧（或按箭头方向）',
-            '安装后盘车无卡阻、无异常泄漏'
-          ],
-          refs: ['机械密封安装指南'],
-          open: false
-        },
-        {
-          cat: '液压',
-          title: '液压系统换油与清洗',
-          desc: '系统排空旧油后用专用冲洗油循环清洗，再注入同牌号新液压油并排气。',
-          warn: '不同品牌、不同黏度等级液压油禁止混用',
-          estimate: '90 分钟',
-          checklist: [
-            '油温 40°C 左右时放油，杂质随油带出',
-            '油箱内壁用白面团粘净金属屑',
-            '更换回油、吸油及高压过滤器滤芯',
-            '注油至液位上限后空载循环排气 15 分钟'
-          ],
-          refs: ['液压系统维护规程 §6.2'],
-          open: false
-        },
-        {
-          cat: '仪表',
-          title: '压力变送器现场校准',
-          desc: '采用手持压力泵 + 精密数字压力表在现场对变送器做三点校准，记录误差并修正。',
-          estimate: '35 分钟',
-          checklist: [
-            '关闭引压阀并泄压，拆下变送器',
-            '0%、50%、100% 三点升压/降压各读取两次',
-            '误差 ≤ 0.5%FS，否则调整零点与量程',
-            '安装后做泄漏检查并在 DCS 侧核对读数'
-          ],
-          refs: ['过程仪表校准规范 JJF 1183'],
-          open: false
-        },
-        {
-          cat: '安全',
-          title: '受限空间作业准入',
-          desc: '按照"先通风、再检测、后作业"原则，落实气体检测、监护人、救援预案等措施。',
-          warn: '作业期间监护人严禁离开，每 30 分钟复测一次气体浓度',
-          estimate: '30 分钟（准入前）',
-          checklist: [
-            '办理受限空间作业票并经审批',
-            '强制通风不少于 30 分钟',
-            '检测 O₂ 19.5%~23.5%、可燃气体 LEL<10%、有毒气体合格',
-            '外部监护人到位、三角架/救生索布好、通讯畅通'
-          ],
-          refs: ['GB 30871 化学品生产单位特殊作业安全规范'],
-          open: false
-        },
-        {
-          cat: '安全',
-          title: '试运转与验收',
-          desc: '装配完成后手动盘车确认无异常。通电试运行 30 分钟，监测振动、温度、电流三项指标。记录试运行数据。',
-          warn: '试运转期间人员保持安全距离',
-          estimate: '45 分钟',
-          checklist: [
-            '手动盘车 3~5 转无卡阻',
-            '点动试车确认转向正确',
-            '空载 15 分钟 + 额定负载 15 分钟',
-            '振动、温度、电流记录齐全并签字验收'
-          ],
-          refs: ['设备检修验收规范 §7'],
-          open: false
-        },
-        {
-          cat: '仪表',
-          title: '调节阀检修与定位器校准',
-          desc: '解体清洗阀芯阀座，研磨密封面，更换填料。装配后对阀门定位器做行程校准。',
-          estimate: '75 分钟',
-          checklist: [
-            '阀体介质排净并置换合格',
-            '阀芯阀座密封面做着色或煤油渗漏试验',
-            '填料函按对角线交替压紧，无卡阻',
-            '4~20mA 输入对应 0~100% 行程，误差 ≤ 1%'
-          ],
-          refs: ['调节阀检修规程 §5.3'],
-          open: false
-        }
-      ]
+      categories: ['全部'],
+      allGuides: [],
+      myReports: [],
+      loadingGuides: true,
+      loadingTypes: true,
+      loadingReports: true
+    }
+  },
+  async created() {
+    try {
+      const [guidesRes, typesRes, reportsRes] = await Promise.all([
+        listGuidesApi({ page: 1, size: 20000, source: 'all' }).catch(e => ({ data: { list: [] } })),
+        listGuideTypesApi().catch(e => ({ data: [] })),
+        listReportsApi({ page: 1, size: 20000, scope: 'mine' }).catch(e => ({ data: { list: [] } }))
+      ])
+
+      const rawGuides = (guidesRes && guidesRes.data && guidesRes.data.list) || []
+      const rawTypes = (typesRes && typesRes.data) || []
+      const rawReports = (reportsRes && reportsRes.data && reportsRes.data.list) || []
+
+      this.allGuides = rawGuides.map(g => this._convertGuide(g))
+      this.myReports = rawReports.map(r => Object.assign({}, r, { _open: false }))
+      this.categories = ['全部'].concat(rawTypes.filter(t => t && t.trim()))
+    } catch (err) {
+      console.error('加载作业指导数据失败:', err)
+      this.allGuides = []
+      this.myReports = []
+    } finally {
+      this.loadingGuides = false
+      this.loadingTypes = false
+      this.loadingReports = false
     }
   },
   computed: {
+    employeeGuideCount() {
+      return this.allGuides.filter(g => g._fromReport).length
+    },
+    officialGuides() {
+      return this.allGuides.filter(g => !g._fromReport)
+    },
+    employeeGuides() {
+      return this.allGuides.filter(g => g._fromReport)
+    },
+    sourceTabs() {
+      return [
+        { key: 'all',      label: '全部规程',    icon: '⇢',  count: this.allGuides.length },
+        { key: 'official', label: '官方知识库', icon: '📖', count: this.officialGuides.length },
+        { key: 'employee', label: '员工贡献',   icon: '📝', count: this.employeeGuides.length },
+        { key: 'mine',     label: '我的贡献',   icon: '👤', count: this.myReports.length }
+      ]
+    },
+    sourceGuides() {
+      switch (this.currentSource) {
+        case 'official':
+          return this.officialGuides
+        case 'employee':
+          return this.employeeGuides
+        case 'all':
+        default:
+          return this.allGuides
+      }
+    },
     filteredSteps() {
-      let list = this.steps
+      let list = this.sourceGuides
       if (this.currentCat !== '全部') {
         list = list.filter(s => s.cat === this.currentCat)
       }
       const q = this.searchQuery.trim().toLowerCase()
       if (q) {
-        list = list.filter(s =>
-          s.title.toLowerCase().includes(q) ||
-          s.desc.toLowerCase().includes(q) ||
-          (s.checklist || []).some(x => x.toLowerCase().includes(q))
-        )
+        list = list.filter(s => {
+          if ((s.title || '').toLowerCase().includes(q)) return true
+          if ((s.desc || '').toLowerCase().includes(q)) return true
+          if ((s.warn || '').toLowerCase().includes(q)) return true
+          if ((s.checklist || []).some(x => (x || '').toLowerCase().includes(q))) return true
+          if ((s.refs || []).some(x => (x || '').toLowerCase().includes(q))) return true
+          return false
+        })
       }
       return list
     },
@@ -308,28 +286,77 @@ export default {
         '液压': '#a855f7',
         '仪表': '#22d3ee'
       }
-      const total = this.steps.length || 1
-      return this.categories
-        .filter(c => c !== '全部')
-        .map(name => ({
+      const baseList = this.sourceGuides
+      const total = baseList.length || 1
+      const realCats = this.categories.filter(c => c !== '全部')
+      if (realCats.length === 0) {
+        return Object.keys(colorMap).map(name => ({
           name,
-          count: this.categoryCount(name),
-          percent: Math.round(this.categoryCount(name) / total * 100),
-          color: colorMap[name] || 'var(--primary)'
+          count: baseList.filter(s => s.cat === name).length,
+          percent: Math.round(baseList.filter(s => s.cat === name).length / total * 100),
+          color: colorMap[name]
         }))
+      }
+      return realCats.map(name => ({
+        name,
+        count: this.categoryCountForStats(name, baseList),
+        percent: Math.round(this.categoryCountForStats(name, baseList) / total * 100),
+        color: colorMap[name] || 'var(--primary)'
+      }))
     }
   },
   methods: {
+    _convertGuide(g) {
+      const cat = g.device_type || '机械'
+      const steps = g.steps || []
+      const firstTwoSteps = steps.slice(0, 2).map(s => (s.content || '')).filter(x => x).join('；')
+      const desc = (g.tag ? g.tag + ' · ' : '') + '适用设备: ' + cat + (firstTwoSteps ? ' · ' + firstTwoSteps : '')
+      const checklist = steps.map(s => s.content || '').filter(x => x).slice(0, 8)
+      return {
+        id: g.id,
+        cat,
+        catClass: this.catClass(cat),
+        title: g.title || '未命名作业指导',
+        desc,
+        checklist,
+        warn: g.risk_note || '',
+        estimate: g.duration_min ? g.duration_min + ' 分钟' : '—',
+        refs: g.tag ? [g.tag] : [],
+        _fromReport: !!g.is_employee_contribution,
+        _userName: g.contributor_name || '',
+        _syncTime: (g.created_at_ts || 0) * 1000,
+        open: false
+      }
+    },
     catClass(cat) {
       return ({ '机械': 'blue', '电气': 'green', '安全': 'orange', '液压': 'purple', '仪表': 'cyan' })[cat] || 'blue'
     },
     categoryCount(cat) {
-      if (cat === '全部') return this.steps.length
-      return this.steps.filter(s => s.cat === cat).length
+      if (cat === '全部') return this.filteredSteps.length
+      return this.filteredSteps.filter(s => s.cat === cat).length
+    },
+    categoryCountForStats(cat, list) {
+      return list.filter(s => s.cat === cat).length
     },
     toggleCheck(step, idx) {
-      if (!step._done) this.$set(step, '_done', [])
+      if (!step._done) this.$set(step, '_done', {})
       this.$set(step._done, idx, !step._done[idx])
+    },
+    formatDate(ts) {
+      if (!ts) return '—'
+      const d = new Date(ts)
+      return d.toLocaleDateString('zh-CN')
+    },
+    statusText(s) {
+      const map = {
+        pending: '待审核',
+        reviewing: '审核中',
+        approved: '已采纳',
+        rejected: '已拒绝',
+        synced_guide: '已入库指导',
+        synced_case: '已入库案例'
+      }
+      return map[s] || (s || '未知')
     }
   }
 }
@@ -349,7 +376,53 @@ export default {
   color: var(--text-secondary);
 }
 
-/* 工具栏 */
+.source-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.source-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+.source-tab:hover {
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+.source-tab.active {
+  background: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: 0 0 0 1px rgba(0,212,255,0.25);
+  font-weight: 600;
+}
+.st-icon { font-size: 1rem; }
+.st-count {
+  padding: 2px 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.source-tab.active .st-count {
+  background: var(--primary);
+  color: #04141f;
+}
+
 .guide-toolbar {
   display: flex;
   flex-direction: column;
@@ -427,7 +500,6 @@ export default {
   background: rgba(255,255,255,0.05);
 }
 
-/* 进度概览 */
 .progress-summary {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -468,7 +540,6 @@ export default {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* 时间线 */
 .timeline {
   position: relative;
 }
@@ -476,6 +547,11 @@ export default {
 .timeline-item {
   display: flex;
   gap: 20px;
+}
+
+.timeline-item.from-report .timeline-content {
+  border-left: 3px solid #ffa502;
+  background: linear-gradient(90deg, rgba(255,165,2,0.05), transparent 60%);
 }
 
 .timeline-marker {
@@ -500,6 +576,7 @@ export default {
 .timeline-dot.cat-orange { background: var(--accent-orange); box-shadow: 0 0 8px rgba(255, 107, 53, 0.4); }
 .timeline-dot.cat-purple { background: #a855f7; box-shadow: 0 0 8px rgba(168, 85, 247, 0.4); }
 .timeline-dot.cat-cyan { background: #22d3ee; box-shadow: 0 0 8px rgba(34, 211, 238, 0.4); }
+.skeleton-dot { background: var(--border-subtle); box-shadow: none; animation: pulse 1.5s ease-in-out infinite; }
 
 .timeline-line {
   width: 2px;
@@ -507,8 +584,12 @@ export default {
   background: var(--border-subtle);
   margin: 4px 0;
 }
+.timeline-line.line-blue { background: rgba(0,212,255,0.25); }
+.timeline-line.line-green { background: rgba(0,255,136,0.25); }
+.timeline-line.line-orange { background: rgba(255,107,53,0.25); }
+.timeline-line.line-purple { background: rgba(168,85,247,0.25); }
+.timeline-line.line-cyan { background: rgba(34,211,238,0.25); }
 
-/* 卡片内容 */
 .timeline-content {
   flex: 1;
   margin-bottom: 16px;
@@ -554,6 +635,17 @@ export default {
 .step-cat-chip.cat-purple { color: #a855f7; background: rgba(168, 85, 247, 0.1); }
 .step-cat-chip.cat-cyan   { color: #22d3ee; background: rgba(34, 211, 238, 0.1); }
 
+.step-badge {
+  font-size: 0.6875rem;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.report-badge {
+  background: linear-gradient(135deg, #ffa502, #ff7a00);
+  color: #fff;
+}
+
 .step-title {
   flex: 1;
   font-size: 1rem;
@@ -578,7 +670,6 @@ export default {
   margin-bottom: 14px;
 }
 
-/* 检查清单 */
 .step-checklist {
   display: flex;
   flex-direction: column;
@@ -633,7 +724,6 @@ export default {
   line-height: 1.6;
 }
 
-/* 参考标签 */
 .step-refs {
   margin-bottom: 12px;
   display: flex;
@@ -683,6 +773,11 @@ export default {
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .estimate {
@@ -691,7 +786,32 @@ export default {
   font-family: 'JetBrains Mono', monospace;
 }
 
-/* 动画 */
+.step-contributor {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.step-contributor b {
+  color: #ffa502;
+  font-weight: 600;
+}
+
+.step-review {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: rgba(0,255,136,0.06);
+  border: 1px solid rgba(0,255,136,0.25);
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+.review-label {
+  color: var(--accent-green);
+  font-weight: 600;
+}
+.review-text {
+  color: var(--text-primary);
+}
+
 .expand-enter-active,
 .expand-leave-active {
   transition: all 0.25s var(--ease);
@@ -703,7 +823,6 @@ export default {
   transform: translateY(-6px);
 }
 
-/* 空状态 */
 .empty-state {
   text-align: center;
   padding: 80px 0;
@@ -717,5 +836,211 @@ export default {
 .empty-state p {
   font-size: 0.9375rem;
   color: var(--text-muted);
+}
+.empty-sub {
+  margin-top: 4px;
+  font-size: 0.8125rem !important;
+  opacity: 0.8;
+}
+
+/* Skeleton styles */
+.skeleton-card {
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.skeleton-line {
+  height: 14px;
+  background: linear-gradient(90deg, var(--border-subtle) 25%, rgba(255,255,255,0.08) 50%, var(--border-subtle) 75%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: shimmer 1.4s infinite;
+  width: 100%;
+}
+.skeleton-title {
+  height: 20px;
+  width: 60%;
+  margin-bottom: 4px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+/* Mine reports grid */
+.case-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.case-card {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.case-card.expanded {
+  grid-column: span 3;
+  border-color: var(--border-active);
+  box-shadow: var(--shadow-glow);
+}
+.case-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.case-tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+.case-tag.blue { color: var(--primary); background: var(--primary-subtle); }
+.case-tag.green { color: var(--accent-green); background: rgba(0, 255, 136, 0.1); }
+.case-tag.orange { color: var(--accent-orange); background: rgba(255, 107, 53, 0.1); }
+.case-tag.purple { color: #a855f7; background: rgba(168, 85, 247, 0.1); }
+.case-tag.cyan { color: #22d3ee; background: rgba(34, 211, 238, 0.1); }
+
+.status-badge {
+  font-size: 0.6875rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.status-pending { background: rgba(255,193,7,0.12); color: #ffc107; }
+.status-reviewing { background: rgba(0,212,255,0.12); color: var(--primary); }
+.status-approved, .status-synced_guide, .status-synced_case { background: rgba(0,255,136,0.12); color: var(--accent-green); }
+.status-rejected { background: rgba(255,107,107,0.12); color: #ff6b6b; }
+
+.case-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.case-summary {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  flex: 1;
+  margin-bottom: 14px;
+}
+.case-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.meta-item {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.case-contributor {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.contrib-icon { opacity: 0.8; }
+
+/* Case detail expand */
+.case-detail {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--border-subtle);
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+.case-detail .detail-section.tips {
+  grid-column: span 2;
+}
+.detail-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--primary);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.detail-text {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.solution-text {
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+.expand-arrow {
+  grid-column: span 2;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+.toggle-hint {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--duration) var(--ease);
+}
+.case-card:hover .toggle-hint {
+  opacity: 1;
+}
+
+@media (max-width: 1000px) {
+  .progress-summary {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+  .case-grid, .skeleton-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .progress-summary {
+    grid-template-columns: 1fr;
+  }
+  .case-grid, .skeleton-grid {
+    grid-template-columns: 1fr;
+  }
+  .case-card.expanded {
+    grid-column: span 1;
+  }
+  .case-detail {
+    grid-template-columns: 1fr;
+  }
+  .case-detail .detail-section.tips {
+    grid-column: span 1;
+  }
+  .expand-arrow {
+    grid-column: span 1;
+  }
 }
 </style>

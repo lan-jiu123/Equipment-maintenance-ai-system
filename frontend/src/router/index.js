@@ -11,11 +11,14 @@ import Password from '../views/Password.vue'
 import Logs from '../views/Logs.vue'
 import AdminDashboard from '../views/AdminDashboard.vue'
 import WorkerDashboard from '../views/WorkerDashboard.vue'
+import Tickets from '../views/Tickets.vue'
+import DeviceMgmt from '../views/DeviceMgmt.vue'
+import UserMgmt from '../views/UserMgmt.vue'
 
 export const ROLE_HOME = {
   sysadmin: '/home',
-  manager: '/admin',
-  worker: '/worker'
+  manager: '/home',
+  worker: '/desk'
 }
 
 export function getRoleHome(role) {
@@ -28,12 +31,16 @@ const routes = [
     const u = getUser()
     return getRoleHome(u && u.role)
   }},
-  { path: '/home', component: Home, meta: { roles: ['sysadmin', 'manager'] } },
-  { path: '/admin', component: AdminDashboard, meta: { roles: ['sysadmin', 'manager'] } },
-  { path: '/worker', component: WorkerDashboard, meta: { roles: ['worker', 'manager'] } },
-  { path: '/search', component: Search, meta: { roles: ['sysadmin', 'manager', 'worker'] } },
-  { path: '/guide', component: Guide, meta: { roles: ['sysadmin', 'manager', 'worker'] } },
-  { path: '/case', component: Case, meta: { roles: ['sysadmin', 'manager', 'worker'] } },
+  { path: '/home', component: Home, meta: { roles: ['sysadmin', 'manager'], label: '仪表盘' } },
+  { path: '/admin', component: AdminDashboard, meta: { roles: ['sysadmin', 'manager'], label: '维修管理' } },
+  { path: '/devices', component: DeviceMgmt, meta: { roles: ['sysadmin', 'manager'], label: '设备管理' } },
+  { path: '/users', component: UserMgmt, meta: { roles: ['sysadmin', 'manager'], label: '用户管理' } },
+  { path: '/desk', component: WorkerDashboard, meta: { roles: ['worker', 'manager'], label: '工作台' } },
+  { path: '/tickets', component: Tickets, meta: { roles: ['worker', 'manager'], label: '我的工单' } },
+  { path: '/worker', redirect: '/desk' },
+  { path: '/search', component: Search, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '智能检索' } },
+  { path: '/guide', component: Guide, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '作业指导' } },
+  { path: '/case', component: Case, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '案例库' } },
   { path: '/profile', component: Profile, meta: { roles: ['sysadmin', 'manager', 'worker'] } },
   { path: '/password', component: Password, meta: { roles: ['sysadmin', 'manager', 'worker'] } },
   { path: '/logs', component: Logs, meta: { roles: ['sysadmin', 'manager'] } }

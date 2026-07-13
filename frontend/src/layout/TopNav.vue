@@ -7,27 +7,121 @@
         <span class="logo-text">EQUIP<span class="highlight">AI</span></span>
       </div>
 
-      <!-- Tab 导航：按角色动态渲染 -->
-      <nav class="nav-tabs">
-        <router-link
-          v-for="tab in tabs"
-          :key="tab.path"
-          :to="tab.path"
-          class="nav-tab"
-          :class="{ active: isTabActive(tab.path) }"
+      <!-- 分组导航 -->
+      <nav v-if="menus && menus.length" class="nav-tabs">
+        <div
+          v-for="group in menus"
+          :key="group.key"
+          class="nav-group"
+          :class="{ hover: hoverGroup === group.key }"
+          @mouseenter="group.children.length > 1 && (hoverGroup = group.key)"
+          @mouseleave="hoverGroup = null"
         >
-          <span class="tab-icon">{{ tab.icon }}</span>
-          {{ tab.label }}
-        </router-link>
+          <div
+            class="nav-tab"
+            :class="{
+              'root-active': isGroupActive(group),
+              'has-children': group.children.length > 1,
+              'accent-purple': group.accent === 'purple'
+            }"
+            @click="onGroupClick(group)"
+          >
+            <span class="tab-icon">{{ group.icon }}</span>
+            <span class="tab-label">{{ group.label }}</span>
+            <span v-if="group.badge" class="tab-badge" :class="'badge-' + (group.accent || 'blue')">{{ group.badge }}</span>
+            <span v-if="group.children.length > 1" class="tab-caret">▾</span>
+          </div>
+
+          <!-- 子菜单下拉 -->
+          <transition name="submenu">
+            <div
+              v-if="group.children.length > 1 && (hoverGroup === group.key || clickGroup === group.key)"
+              class="submenu-panel"
+              @click.stop
+            >
+              <div class="submenu-inner">
+                <div
+                  v-for="child in group.children"
+                  :key="child.path"
+                  class="submenu-item"
+                  :class="{ active: $route.path === child.path }"
+                  @click="go(child.path)"
+                >
+                  <span class="submenu-label">{{ child.label }}</span>
+                </div>
+              </div>
+            </div>
+          </transition>
+        </div>
       </nav>
 
       <!-- 右侧操作 -->
       <div class="nav-actions">
         <div v-if="user" class="user-menu">
-          <div
-            class="user-dropdown"
-            @click.stop
-          >
+          <!-- 消息通知铃铛 -->
+          <div class="notif-wrapper" @click.stop>
+            <button
+              class="notif-bell"
+              :class="{ open: notifOpen, 'has-unread': unreadCount > 0 }"
+              :title="unreadCount ? `您有 ${unreadCount} 条未读消息` : '消息通知'"
+              @click="toggleNotif"
+            >
+              <span class="bell-icon">🔔</span>
+              <span v-if="unreadCount > 0" class="bell-dot">
+                {{ unreadCount > 99 ? '99+' : unreadCount }}
+              </span>
+            </button>
+
+            <transition name="notif-fade">
+              <div v-if="notifOpen" class="notif-panel">
+                <div class="notif-header">
+                  <div class="notif-title">
+                    <span>消息通知</span>
+                    <span v-if="unreadCount > 0" class="notif-unread-badge">{{ unreadCount }} 条未读</span>
+                  </div>
+                  <button
+                    v-if="unreadCount > 0"
+                    class="notif-read-all-btn"
+                    @click="markAllRead"
+                  >全部标为已读</button>
+                </div>
+                <div class="notif-divider"></div>
+                <div v-if="!notifications.length" class="notif-empty">
+                  <div class="empty-icon">📭</div>
+                  <div class="empty-text">暂无消息</div>
+                </div>
+                <div v-else class="notif-list">
+                  <div
+                    v-for="n in notifications"
+                    :key="n.id"
+                    class="notif-item"
+                    :class="{ unread: !n.is_read }"
+                    @click="openNotification(n)"
+                  >
+                    <div class="notif-icon" :class="'icon-' + n.type">
+                      {{ notifIcon(n.type) }}
+                    </div>
+                    <div class="notif-body">
+                      <div class="notif-head">
+                        <span class="notif-item-title">{{ n.title }}</span>
+                        <span class="notif-time">{{ n._time }}</span>
+                      </div>
+                      <div class="notif-content">{{ n.content }}</div>
+                    </div>
+                    <span v-if="!n.is_read" class="notif-point"></span>
+                  </div>
+                </div>
+                <div class="notif-divider"></div>
+                <div class="notif-footer">
+                  <button class="notif-footer-btn" @click="goNotifCenter">
+                    查看全部消息 →
+                  </button>
+                </div>
+              </div>
+            </transition>
+          </div>
+
+          <div class="user-dropdown" @click.stop>
             <div
               class="user-info dropdown-trigger"
               :class="{ open: dropdownOpen }"
@@ -40,7 +134,7 @@
               <div class="user-meta">
                 <div class="user-name">{{ displayName }}</div>
                 <div class="user-role" :class="'role-' + (user.role || 'sysadmin')">
-                  {{ user.demo ? '演示模式 · ' : '' }}{{ roleLabel }}
+                  {{ roleLabel }}
                 </div>
               </div>
               <span class="caret">▾</span>
@@ -63,6 +157,11 @@
                   <span class="dd-icon">👤</span>
                   <span>个人信息</span>
                   <span class="dd-shortcut">⌘P</span>
+                </li>
+                <li class="dropdown-item" @click="goNotifCenter">
+                  <span class="dd-icon">🔔</span>
+                  <span>消息通知</span>
+                  <span v-if="unreadCount > 0" class="dd-shortcut notif-inline">{{ unreadCount }}</span>
                 </li>
                 <li class="dropdown-item" @click="go('/password')">
                   <span class="dd-icon">🔐</span>
@@ -92,33 +191,59 @@
 </template>
 
 <script>
-import { getUser, logout, getAvatar, resolveAvatarSrc } from '../utils/auth'
+import { authState, logout, resolveAvatarSrc } from '../utils/auth'
 import { getRoleHome } from '../router'
+import { request, toast } from '../utils/request'
 
-const ROLE_TABS = {
+const ROLE_MENUS = {
   sysadmin: [
-    { path: '/home', label: '仪表盘', icon: '◈' },
-    { path: '/admin', label: '维修管理', icon: '☗' },
-    { path: '/search', label: '智能检索', icon: '◎' },
-    { path: '/guide', label: '作业指导', icon: '⇢' },
-    { path: '/case', label: '案例库', icon: '▣' }
+    { key: 'workbench', label: '仪表盘', icon: '📊',
+      children: [{ path: '/home', label: '仪表盘' }] },
+    { key: 'ops', label: '设备运维', icon: '🔧', children: [
+      { path: '/devices', label: '设备管理' },
+      { path: '/admin', label: '维修管理' }
+    ]},
+    { key: 'ai', label: '智能助手', icon: '🧠', accent: 'purple', badge: 'AI',
+      children: [
+        { path: '/search', label: '智能检索' },
+        { path: '/guide', label: '作业指导' },
+        { path: '/case', label: '案例库' }
+      ]},
+    { key: 'sys', label: '用户管理', icon: '⚙',
+      children: [{ path: '/users', label: '用户列表' }] }
   ],
   manager: [
-    { path: '/admin', label: '工作台', icon: '☗' },
-    { path: '/search', label: '智能检索', icon: '◎' },
-    { path: '/guide', label: '作业指导', icon: '⇢' },
-    { path: '/case', label: '案例库', icon: '▣' }
+    { key: 'workbench', label: '仪表盘', icon: '📊',
+      children: [{ path: '/home', label: '仪表盘' }] },
+    { key: 'ops', label: '设备运维', icon: '🔧', children: [
+      { path: '/devices', label: '设备管理' },
+      { path: '/admin', label: '维修管理' }
+    ]},
+    { key: 'ai', label: '智能助手', icon: '🧠', accent: 'purple', badge: 'AI',
+      children: [
+        { path: '/search', label: '智能检索' },
+        { path: '/guide', label: '作业指导' },
+        { path: '/case', label: '案例库' }
+      ]},
+    { key: 'sys', label: '用户管理', icon: '⚙',
+      children: [{ path: '/users', label: '用户列表' }] }
   ],
   worker: [
-    { path: '/worker', label: '我的工单', icon: '🔧' },
-    { path: '/search', label: '智能检索', icon: '◎' },
-    { path: '/guide', label: '作业指导', icon: '⇢' },
-    { path: '/case', label: '案例库', icon: '▣' }
+    { key: 'workbench', label: '工作台', icon: '📊',
+      children: [{ path: '/desk', label: '我的工作台' }] },
+    { key: 'ai', label: '智能助手', icon: '🧠', accent: 'purple',
+      children: [
+        { path: '/search', label: '智能检索' },
+        { path: '/guide', label: '作业指导' },
+        { path: '/case', label: '案例库' }
+      ]},
+    { key: 'tasks', label: '我的工单', icon: '📋',
+      children: [{ path: '/tickets', label: '我的工单' }] }
   ]
 }
 
 const ROLE_PERMISSION_TEXT = {
-  sysadmin: '超级权限',
+  sysadmin: '派单 / 统计 / 管理权限',
   manager: '派单 / 统计 / 管理权限',
   worker: '执行 / 上报权限'
 }
@@ -127,13 +252,26 @@ export default {
   name: 'TopNav',
   data() {
     return {
-      tabs: [],
-      user: null,
       dropdownOpen: false,
-      avatarSrc: ''
+      hoverGroup: null,
+      clickGroup: null,
+      notifOpen: false,
+      notifications: [],
+      unreadCount: 0,
+      _notifTimer: null
     }
   },
   computed: {
+    user() {
+      return authState.user
+    },
+    menus() {
+      const role = (this.user && this.user.role) || 'sysadmin'
+      return ROLE_MENUS[role] || ROLE_MENUS.sysadmin
+    },
+    avatarSrc() {
+      return resolveAvatarSrc(authState.avatar)
+    },
     userInitial() {
       const name = this.displayName
       if (!name) return 'U'
@@ -143,10 +281,13 @@ export default {
       if (!this.user) return ''
       return this.user.fullname || this.user.username
     },
+    isWorker() {
+      return this.user && this.user.role === 'worker'
+    },
     roleLabel() {
       if (!this.user) return ''
       return this.user.role_label || {
-        sysadmin: '系统管理员',
+        sysadmin: '维修管理员',
         manager: '维修管理员',
         worker: '维修工'
       }[this.user.role] || '访客'
@@ -158,50 +299,84 @@ export default {
       return !this.user || this.user.role !== 'worker'
     }
   },
-  created() {
-    this.refreshUser()
-    this.refreshAvatar()
-    window.addEventListener('storage', this.refreshUser)
-    window.addEventListener('equipai-avatar-changed', this.refreshAvatar)
-  },
   mounted() {
     document.addEventListener('click', this.handleOutsideClick)
-    this.refreshAvatar()
+    if (this.user) {
+      this.fetchNotifications()
+      this._notifTimer = setInterval(() => this.fetchNotifications(true), 30000)
+    }
   },
   beforeUnmount() {
-    window.removeEventListener('storage', this.refreshUser)
-    window.removeEventListener('equipai-avatar-changed', this.refreshAvatar)
     document.removeEventListener('click', this.handleOutsideClick)
+    if (this._notifTimer) { clearInterval(this._notifTimer); this._notifTimer = null }
   },
   watch: {
     '$route.path'() {
-      this.refreshUser()
       this.dropdownOpen = false
+      this.clickGroup = null
+      this.notifOpen = false
+    },
+    'authState._version'() {
+      // 用户切换后刷新通知
+      if (this._notifTimer) { clearInterval(this._notifTimer); this._notifTimer = null }
+      if (this.user) {
+        this.fetchNotifications()
+        this._notifTimer = setInterval(() => this.fetchNotifications(true), 30000)
+      } else {
+        this.notifications = []
+        this.unreadCount = 0
+      }
     }
   },
   methods: {
-    refreshUser() {
-      this.user = getUser()
-      const role = (this.user && this.user.role) || 'sysadmin'
-      this.tabs = ROLE_TABS[role] || ROLE_TABS.sysadmin
+    isGroupActive(group) {
+      const path = this.$route.path
+      if (group.key === 'workbench') {
+        return group.children.some(c => path === c.path)
+      }
+      if (group.key === 'ops') {
+        return path === '/devices' || path === '/admin' || path.startsWith('/devices/') || path.startsWith('/admin/')
+      }
+      if (group.key === 'ai') {
+        return path === '/search' || path === '/guide' || path === '/case' ||
+               path.startsWith('/search/') || path.startsWith('/guide/') || path.startsWith('/case/')
+      }
+      if (group.key === 'sys') {
+        return path === '/users' || path.startsWith('/users/')
+      }
+      if (group.key === 'tasks') {
+        return path === '/tickets' || path.startsWith('/tickets/')
+      }
+      return group.children.some(c => path === c.path)
     },
-    refreshAvatar() {
-      this.avatarSrc = resolveAvatarSrc(getAvatar())
-    },
-    isTabActive(path) {
-      if (path === '/home') return this.$route.path === '/home'
-      if (path === '/admin') return this.$route.path === '/admin'
-      if (path === '/worker') return this.$route.path === '/worker'
-      return this.$route.path === path
+    onGroupClick(group) {
+      this.clickGroup = null
+      this.hoverGroup = null
+      if (group.children.length === 1) {
+        this.go(group.children[0].path)
+      } else {
+        this.clickGroup = group.key
+      }
     },
     toggleDropdown() {
+      this.notifOpen = false
       this.dropdownOpen = !this.dropdownOpen
+    },
+    toggleNotif() {
+      this.dropdownOpen = false
+      this.notifOpen = !this.notifOpen
     },
     handleOutsideClick() {
       this.dropdownOpen = false
+      this.clickGroup = null
+      this.hoverGroup = null
+      this.notifOpen = false
     },
     go(path) {
       this.dropdownOpen = false
+      this.clickGroup = null
+      this.hoverGroup = null
+      this.notifOpen = false
       this.$router.push(path)
     },
     goHome() {
@@ -209,9 +384,109 @@ export default {
     },
     handleLogout() {
       this.dropdownOpen = false
+      this.notifOpen = false
       logout()
-      this.user = null
       this.$router.replace({ path: '/login' })
+    },
+
+    // ---------- 通知相关方法 ----------
+    async fetchNotifications(silent = false) {
+      try {
+        const data = await request('/notifications', {
+          params: { size: 8, unread_only: 0 },
+          silent
+        })
+        const items = (data && data.items) || []
+        this.unreadCount = (data && typeof data.unread_count === 'number') ? data.unread_count : 0
+        this.notifications = items.map(n => ({
+          ...n,
+          is_read: !!n.is_read,
+          _time: this._fmtNotifTime(n.created_at_ts)
+        }))
+      } catch (e) {
+        if (!silent) {
+          // 接口不存在时静默降级
+        }
+      }
+    },
+    async markRead(ids) {
+      if (!ids || !ids.length) return
+      try {
+        await request('/notifications/read', {
+          method: 'POST',
+          data: { ids: ids },
+          silent: true
+        })
+        this.notifications.forEach(n => { if (ids.includes(n.id)) n.is_read = true })
+        this.unreadCount = Math.max(0, this.unreadCount - ids.length)
+      } catch (_) {}
+    },
+    async markAllRead() {
+      try {
+        await request('/notifications/read', {
+          method: 'POST',
+          data: { all: true }
+        })
+        this.notifications.forEach(n => (n.is_read = true))
+        this.unreadCount = 0
+        toast('已全部标记为已读', 'success')
+      } catch (e) {
+        toast('操作失败，请稍后再试')
+      }
+    },
+    openNotification(n) {
+      if (!n.is_read) this.markRead([n.id])
+      const type = (n.type || '').toString()
+      const relatedId = n.related_id
+      if ((type === 'report_submitted' || type.startsWith('report_')) &&
+          this.user && this.user.role !== 'worker') {
+        const q = { tab: 'knowledge', kr: 'pending' }
+        if (relatedId) q.rid = String(relatedId)
+        this.$router.push({ path: '/admin', query: q })
+        this.notifOpen = false
+        return
+      }
+      if (type === 'report_approved' || type === 'report_rejected' || type === 'report_synced') {
+        this.$router.push({ path: '/desk', query: { tab: 'contrib' } })
+        this.notifOpen = false
+        return
+      }
+      if (type === 'ticket_assigned') {
+        this.go('/tickets')
+        return
+      }
+      if (this.user && this.user.role === 'worker') this.go('/desk')
+      else this.$router.push({ path: '/admin', query: { tab: 'knowledge', kr: 'pending' } })
+    },
+    goNotifCenter() {
+      this.notifOpen = false
+      if (this.user && this.user.role === 'worker') {
+        this.$router.push({ path: '/desk', query: { tab: 'contrib' } })
+      } else {
+        this.$router.push({ path: '/admin', query: { tab: 'knowledge', kr: 'pending' } })
+      }
+    },
+    notifIcon(type) {
+      switch (type) {
+        case 'report_submitted': return '📨'
+        case 'report_approved':  return '✅'
+        case 'report_rejected':  return '❌'
+        case 'report_synced':    return '📚'
+        case 'ticket_assigned':  return '🎫'
+        case 'system': default:  return '🔔'
+      }
+    },
+    _fmtNotifTime(ts) {
+      if (!ts) return ''
+      const now = Date.now()
+      const diff = Math.floor((now - ts * 1000) / 1000)
+      if (diff < 0) return '刚刚'
+      if (diff < 60) return '刚刚'
+      if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前'
+      if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前'
+      if (diff < 7 * 86400) return Math.floor(diff / 86400) + ' 天前'
+      const d = new Date(ts * 1000)
+      return `${d.getMonth() + 1}/${d.getDate()}`
     }
   }
 }
@@ -237,7 +512,7 @@ export default {
   right: 0;
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--primary-dim), transparent);
-  opacity: 0.6;
+  opacity: 0.4;
 }
 
 .nav-inner {
@@ -247,7 +522,7 @@ export default {
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: 24px;
 }
 
 .logo {
@@ -277,17 +552,23 @@ export default {
   color: var(--primary);
 }
 
+/* ===== 分组导航 ===== */
 .nav-tabs {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   flex: 1;
+  position: relative;
+}
+
+.nav-group {
+  position: relative;
 }
 
 .nav-tab {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
+  padding: 8px 14px;
   border-radius: var(--radius);
   color: var(--text-secondary);
   text-decoration: none;
@@ -295,6 +576,8 @@ export default {
   font-weight: 500;
   transition: all var(--duration) var(--ease);
   border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .nav-tab:hover {
@@ -303,16 +586,124 @@ export default {
   border-color: var(--border-subtle);
 }
 
-.nav-tab.active {
-  color: var(--primary);
+.nav-tab.root-active {
+  color: var(--text-primary);
   background: var(--primary-subtle);
   border-color: var(--border-active);
+  font-weight: 600;
+}
+
+.nav-tab.root-active.accent-purple {
+  border-color: rgba(139, 92, 246, 0.45);
+  background: rgba(139, 92, 246, 0.10);
 }
 
 .tab-icon {
   font-size: 0.9375rem;
 }
 
+.tab-label {
+  line-height: 1;
+}
+
+.tab-caret {
+  font-size: 0.625rem;
+  margin-left: 2px;
+  opacity: 0.7;
+  transition: transform var(--duration) var(--ease);
+}
+
+.nav-group.hover .tab-caret,
+.nav-group:has(.submenu-panel) .click-open .tab-caret {
+  transform: rotate(180deg);
+}
+
+.tab-badge {
+  font-size: 0.625rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
+}
+
+.tab-badge.badge-purple {
+  background: rgba(139, 92, 246, 0.18);
+  color: var(--accent-purple);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.tab-badge.badge-blue {
+  background: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--border-active);
+}
+
+/* ===== 子菜单下拉 ===== */
+.submenu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  z-index: 900;
+  transform-origin: top left;
+}
+
+.submenu-inner {
+  padding: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.submenu-item {
+  display: flex;
+  align-items: center;
+  padding: 9px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  transition: background var(--duration) var(--ease), color var(--duration) var(--ease);
+  white-space: nowrap;
+}
+
+.submenu-item:hover {
+  background: var(--primary-subtle);
+  color: var(--text-primary);
+}
+
+.submenu-item.active {
+  background: var(--primary-subtle);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.submenu-item.active::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--primary);
+  margin-right: 8px;
+}
+
+.submenu-enter-active,
+.submenu-leave-active {
+  transition: opacity 160ms var(--ease), transform 160ms var(--ease);
+}
+.submenu-enter-from,
+.submenu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+}
+
+/* ===== 右侧操作 ===== */
 .nav-actions {
   flex-shrink: 0;
 }
@@ -394,7 +785,7 @@ export default {
   margin-top: 2px;
   font-weight: 600;
 }
-.user-role.role-sysadmin { color: #a855f7; }
+.user-role.role-sysadmin { color: var(--primary); }
 .user-role.role-manager { color: var(--primary); }
 .user-role.role-worker { color: var(--accent-green); }
 
@@ -521,7 +912,7 @@ export default {
 }
 
 .dropdown-item.danger:hover {
-  background: rgba(255, 71, 87, 0.12);
+  background: rgba(239, 68, 68, 0.12);
   color: var(--accent-red);
 }
 
@@ -543,5 +934,284 @@ export default {
 .btn-sm {
   padding: 6px 16px;
   font-size: 0.8125rem;
+}
+
+/* ===== 消息通知铃铛 ===== */
+.notif-wrapper {
+  position: relative;
+}
+
+.notif-bell {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration) var(--ease);
+}
+
+.notif-bell:hover,
+.notif-bell.open {
+  background: var(--primary-subtle);
+  color: var(--primary);
+  border-color: var(--border-subtle);
+}
+
+.notif-bell.open {
+  border-color: var(--border-active);
+}
+
+.bell-icon {
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.notif-bell.has-unread .bell-icon {
+  animation: bellShake 3.2s ease-in-out infinite;
+}
+
+@keyframes bellShake {
+  0%, 88%, 100% { transform: rotate(0); }
+  90%  { transform: rotate(-12deg); }
+  92%  { transform: rotate(10deg); }
+  94%  { transform: rotate(-8deg); }
+  96%  { transform: rotate(6deg); }
+  98%  { transform: rotate(-3deg); }
+}
+
+.bell-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent-red), #f87171);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border: 2px solid var(--bg-glass);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.55);
+  transform: scale(0.85);
+}
+
+/* ===== 通知下拉面板 ===== */
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.55), var(--shadow-glow);
+  overflow: hidden;
+  z-index: 999;
+  transform-origin: top right;
+}
+
+.notif-fade-enter-active,
+.notif-fade-leave-active {
+  transition: opacity 160ms var(--ease), transform 160ms var(--ease);
+}
+.notif-fade-enter-from,
+.notif-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+}
+
+.notif-header {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, var(--primary-subtle), transparent);
+}
+
+.notif-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.notif-unread-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.14);
+  color: var(--accent-red);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.notif-read-all-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+}
+
+.notif-read-all-btn:hover {
+  background: var(--primary-subtle);
+  border-color: var(--border-active);
+}
+
+.notif-divider {
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.notif-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+.empty-icon { font-size: 2rem; margin-bottom: 8px; opacity: 0.7; }
+.empty-text { font-size: 0.8125rem; }
+
+.notif-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.notif-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: background var(--duration) var(--ease);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.notif-item:last-child { border-bottom: none; }
+
+.notif-item:hover {
+  background: var(--primary-subtle);
+}
+
+.notif-item.unread {
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.08), transparent);
+}
+
+.notif-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  flex-shrink: 0;
+  background: var(--primary-subtle);
+}
+.notif-icon.icon-report_submitted { background: rgba(245, 158, 11, 0.18); }
+.notif-icon.icon-report_approved  { background: rgba(16, 185, 129, 0.18); }
+.notif-icon.icon-report_rejected  { background: rgba(239, 68, 68, 0.18); }
+.notif-icon.icon-report_synced    { background: rgba(59, 130, 246, 0.18); }
+.notif-icon.icon-ticket_assigned  { background: rgba(139, 92, 246, 0.18); }
+.notif-icon.icon-system           { background: var(--primary-subtle); }
+
+.notif-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.notif-item-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.notif-time {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.notif-content {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.notif-point {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  flex-shrink: 0;
+  margin-top: 6px;
+  box-shadow: 0 0 6px var(--primary-glow);
+}
+
+.notif-footer {
+  padding: 8px 12px;
+  background: linear-gradient(90deg, transparent, var(--primary-subtle), transparent);
+}
+
+.notif-footer-btn {
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px dashed var(--border-active);
+  border-radius: var(--radius);
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+}
+
+.notif-footer-btn:hover {
+  background: var(--primary-subtle);
+  border-style: solid;
+}
+
+.notif-inline {
+  background: linear-gradient(135deg, var(--accent-red), #f87171);
+  color: #fff;
+  border-radius: 999px;
+  padding: 1px 7px;
+  letter-spacing: 0;
+  font-weight: 700;
+  min-width: 20px;
+  text-align: center;
 }
 </style>
