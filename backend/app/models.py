@@ -67,8 +67,15 @@ class Device(Base):
     name = Column(String(128), nullable=False)
     tag = Column(String(32), nullable=False, default="机械")  # 机械/电气/液压/仪表/安全
     location = Column(String(255), nullable=True)
+    spec = Column(String(255), nullable=True)                    # 型号/规格
     status = Column(String(32), nullable=False, default=DEVICE_STATUS_NORMAL, index=True)
     last_repair_at = Column(DateTime(timezone=True), nullable=True)
+    fault_desc = Column(Text, nullable=True)                      # 故障描述
+    fault_reporter_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 上报人
+    fault_time = Column(DateTime(timezone=True), nullable=True)   # 故障上报时间
+
+    fault_attachments = relationship("DeviceFaultAttachment", back_populates="device",
+                                     cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_devices_tag_status", "tag", "status"),
@@ -80,6 +87,7 @@ TICKET_PENDING = "pending"   # 待派单
 TICKET_DOING = "doing"       # 进行中
 TICKET_DONE = "done"         # 已完成
 TICKET_OVER = "over"         # 超时
+TICKET_CANCELLED = "cancelled"  # 已驳回
 
 
 class Ticket(Base):
@@ -104,6 +112,8 @@ class Ticket(Base):
                              foreign_keys=[submitter_id])
     assignee = relationship("User", back_populates="assigned_tickets",
                             foreign_keys=[assignee_id])
+    attachments = relationship("TicketAttachment", back_populates="ticket",
+                               foreign_keys="TicketAttachment.ticket_id", cascade="all, delete-orphan")
 
 
 # ============= 知识报告表 =============
@@ -135,11 +145,14 @@ class KnowledgeReport(Base):
     question = Column(Text, nullable=False)
     cause = Column(Text, nullable=True)
     solution = Column(Text, nullable=False)
+    repair_process = Column(Text, nullable=True)
+    technical_measures = Column(Text, nullable=True)
+    repair_result = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
     ticket_id = Column(String(64), nullable=True)
     status = Column(String(32), nullable=False, default=REPORT_PENDING, index=True)
     submitter_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    submitter_username = Column(String(64), nullable=True)  # 冗余保存 submitter 的 username，便于精确统计
+    submitter_username = Column(String(64), nullable=True)
     submitter_name = Column(String(128), nullable=False)
     submit_time = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     reviewer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -190,9 +203,12 @@ class Guide(Base):
     title = Column(String(255), nullable=False)
     device_type = Column(String(32), nullable=False, default="机械", index=True)
     tag = Column(String(32), nullable=True)
-    steps_json = Column(Text, nullable=False)  # 存 JSON，避免建子表：[{"step":1,"content":"","tip":""},...]
+    steps_json = Column(Text, nullable=False)  # 存 JSON：[{"step":1,"content":"","tip":""},...]
     risk_note = Column(Text, nullable=True)
     duration_min = Column(Integer, nullable=True)
+    difficulty = Column(Integer, nullable=True)                # 难度 1-5（★数）
+    tools_json = Column(Text, nullable=True)                    # 工具清单 JSON ["拉马","扭矩扳手",...]
+    applicable_devices = Column(String(512), nullable=True)    # 适用设备文本
     source_report_id = Column(Integer, ForeignKey("knowledge_reports.id"), nullable=True)
     contributor_name = Column(String(128), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
@@ -207,6 +223,8 @@ NOTIFY_TYPE_REPORT_APPROVED = "report_approved"     # 管理员审核通过（�
 NOTIFY_TYPE_REPORT_REJECTED = "report_rejected"     # 管理员驳回（给提交人）
 NOTIFY_TYPE_REPORT_SYNCED = "report_synced"         # 管理员同步入库（给提交人）
 NOTIFY_TYPE_TICKET_ASSIGNED = "ticket_assigned"     # 新工单派给我（给维修工）
+NOTIFY_TYPE_TICKET_CREATED = "ticket_created"       # 新工单已创建（给管理员）
+NOTIFY_TYPE_DEVICE_FAULT = "device_fault"           # 设备故障上报（给管理员）
 NOTIFY_TYPE_SYSTEM = "system"                       # 系统通知
 
 
@@ -223,3 +241,33 @@ class Notification(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
 
     user = relationship("User", back_populates="notifications", foreign_keys=[user_id])
+
+
+# ============= 工单附件表 =============
+class TicketAttachment(Base):
+    __tablename__ = "ticket_attachments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_id = Column(Integer, ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, index=True)
+    filename = Column(String(255), nullable=False)         # 原始文件名
+    file_path = Column(String(512), nullable=False)         # 存储路径（UUID命名）
+    file_size = Column(Integer, nullable=False, default=0)   # 文件大小（字节）
+    mime_type = Column(String(64), nullable=True)           # MIME类型
+    uploaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    ticket = relationship("Ticket", back_populates="attachments", foreign_keys=[ticket_id])
+
+
+# ============= 设备故障上报附件表 =============
+class DeviceFaultAttachment(Base):
+    __tablename__ = "device_fault_attachments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    filename = Column(String(255), nullable=False)         # 原始文件名
+    file_path = Column(String(512), nullable=False)         # 存储路径（UUID命名）
+    file_size = Column(Integer, nullable=False, default=0)   # 文件大小（字节）
+    mime_type = Column(String(64), nullable=True)           # MIME类型
+    uploaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    device = relationship("Device", back_populates="fault_attachments")

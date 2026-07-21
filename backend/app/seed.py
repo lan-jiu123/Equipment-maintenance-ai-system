@@ -147,25 +147,34 @@ def _create_users(db: Session) -> dict[str, User]:
 
 
 # ============================================================
-# 2. 设备（5 大类共 120 台）
+# 2. 设备（6 大类共 120 台）
 # ============================================================
 _DEVICE_TYPES = [
     # tag, prefix, name_template, 数量, 位置模板
-    ("机械", "MC",  "CNC 加工中心 {}",       20, "A 车间·精加工单元-{}"),
-    ("机械", "LC",  "数控车床 {}",            15, "A 车间·车削工段-{}"),
-    ("机械", "HY",  "四柱液压机 {}",           6, "B 车间·冲压段-{}"),
-    ("机械", "P",   "离心泵 {}",              10, "动力车间·泵站-{}"),
-    ("机械", "CV",  "皮带输送机 {}",           9, "C 车间·物流线-{}"),
-    ("电气", "PD",  "低压配电柜 {}",           9, "配电房 {} 号柜"),
-    ("电气", "VFD", "变频器驱动站 {}",         8, "A 车间·变频间-{}"),
-    ("电气", "PLC", "PLC 控制站 {}",           8, "中央控制室 S{}"),
-    ("液压", "HP",  "液压动力站 {}",           7, "B 车间·液压间 {}"),
-    ("液压", "VA",  "比例阀组 {}",             7, "B 车间·阀岛 {}"),
-    ("仪表", "PT",  "压力变送器 {}",           9, "管廊 {} 号节点"),
-    ("仪表", "FT",  "电磁流量计 {}",           6, "管廊 {} 号主管"),
-    ("安全", "ES",  "紧急停机系统 {}",          5, "全车间·ESD 站 {}"),
-    ("安全", "SV",  "锅炉安全阀 {}",            4, "锅炉房·{} 号"),
-    ("安全", "SG",  "安全光幕 {}",              3, "加工单元·{} 号门"),
+    # 机械动力设备
+    ("机械动力", "P",    "离心泵 {}",              12, "动力车间·泵站-{}"),
+    ("机械动力", "AC",   "空压机 {}",               8, "压缩空气站·{} 号机组"),
+    ("机械动力", "FAN",  "风机 {}",                6, "通风系统·{} 号风机"),
+    ("机械动力", "GB",   "减速机 {}",              5, "传动单元·{} 号"),
+    # 智能制造设备
+    ("智能制造", "MC",   "CNC 加工中心 {}",       15, "A 车间·精加工单元-{}"),
+    ("智能制造", "LC",   "数控车床 {}",            12, "A 车间·车削工段-{}"),
+    ("智能制造", "HY",   "四柱液压机 {}",           6, "B 车间·冲压段-{}"),
+    ("智能制造", "CV",   "皮带输送机 {}",           8, "C 车间·物流线-{}"),
+    # 电气控制设备
+    ("电气控制", "PD",   "低压配电柜 {}",           8, "配电房 {} 号柜"),
+    ("电气控制", "VFD",  "变频器驱动站 {}",         7, "A 车间·变频间-{}"),
+    ("电气控制", "PLC",  "PLC 控制站 {}",           7, "中央控制室 S{}"),
+    # 液压与执行设备
+    ("液压执行", "HP",   "液压动力站 {}",           6, "B 车间·液压间 {}"),
+    ("液压执行", "VA",   "比例阀组 {}",             6, "B 车间·阀岛 {}"),
+    # 工业仪表设备
+    ("工业仪表", "PT",   "压力变送器 {}",           8, "管廊 {} 号节点"),
+    ("工业仪表", "FT",   "电磁流量计 {}",           5, "管廊 {} 号主管"),
+    # 安全保护设备
+    ("安全保护", "ESD",  "紧急停机系统 {}",          4, "全车间·ESD 站 {}"),
+    ("安全保护", "SG",   "安全光幕 {}",             4, "加工单元·{} 号门"),
+    ("安全保护", "SV",   "安全阀 {}",              5, "锅炉房·{} 号"),
 ]
 
 
@@ -234,27 +243,20 @@ def _create_tickets(db: Session, users: dict[str, User], devices: list[Device]) 
     # pending 接单池 + 转派池：可以包含 core_all + over_pool，所有维修工都能被派
     all_workers = core_all + over_pool
 
-    # —— 差异化分布配置（3 个用户特点不同，评委一眼看出来差异）——
-    # worker1 李建华（资深）：done 多 doing 少 pending 少 → "老将效率高 已完成扎实"
-    # worker2 张伟（中生代）：doing 多 pending 中等 done 中等 → "冲在一线 当前工单最多"
-    # worker3 黄丽（新人）：pending 中等 doing 中等 done 偏少 → "还在成长 数据适中"
-    # extra01/02：over + 少量其他（over 工单不让核心 3 人接）
-    total = random.randint(65, 85)
-    n_pend = max(6, round(total * 0.15))
-    n_doing = max(12, round(total * 0.30))
-    n_over = max(2, round(total * 0.05))
-    n_done = total - n_pend - n_doing - n_over
-
-    # done 分配（核心重点）
-    done_splits = [round(n_done * 0.45), round(n_done * 0.30), round(n_done * 0.15)]
-    done_splits[2] = max(1, done_splits[2])
-    done_splits.append(max(0, n_done - sum(done_splits)))  # 剩余给 extra 池
-    # doing 分配
-    doing_splits = [round(n_doing * 0.20), round(n_doing * 0.45), round(n_doing * 0.25)]
-    doing_splits.append(max(0, n_doing - sum(doing_splits)))
-    # pending（含已派）分配：给每个核心用户少量已派 pending，剩余保留无主给管理员派单
-    pend_per_core = max(1, n_pend // 5)
-    pend_unassigned = max(2, n_pend - pend_per_core * len(core_all))
+    # —— 固定工单数配置 ——
+    # worker1: 待处理3 + 处理中4 + 已完成10 = 17
+    # worker2: 待处理1 + 处理中5 + 已完成12 = 18
+    # worker3: 待处理2 + 处理中3 + 已完成9 = 14
+    # extra01/02: over + 少量其他
+    done_splits = [10, 12, 9, 5]
+    doing_splits = [4, 5, 3, 3]
+    pend_per_core = [3, 1, 2]
+    pend_unassigned = 4
+    n_over = 2
+    n_done = sum(done_splits)
+    n_doing = sum(doing_splits)
+    n_pend = sum(pend_per_core) + pend_unassigned
+    total = n_done + n_doing + n_pend + n_over
 
     count = 0
     SOLUTION_STEPS = [
@@ -319,6 +321,23 @@ def _create_tickets(db: Session, users: dict[str, User], devices: list[Device]) 
                 yield w
                 i += 1
 
+    # ============ 时间分配：近 7 天强制均匀 + 远期均匀 ============
+    def _distribute(n, recent=7, far=120):
+        """返回 n 个 day_ago 列表：一半均匀落在 [0,recent)，一半均匀落在 [recent,far)"""
+        half = n // 2
+        out = []
+        for i in range(half):
+            out.append(int(i / max(1, half) * recent))            # 近 7 天
+        for i in range(n - half):
+            out.append(recent + int(i / max(1, n - half) * (far - recent)))  # 远期
+        random.shuffle(out)
+        return out
+
+    def _fixed_ts(day_ago: int) -> datetime:
+        """精确到某一天（当天随机时分），确保折线图该天计数准确"""
+        d = _NOW - timedelta(days=day_ago)
+        return d.replace(hour=random.randint(7, 22), minute=random.randint(0, 59), second=random.randint(0, 59))
+
     # ============ done ============
     # w1(资深): 45%  w2(中生代):30%  w3(新人):15%  extra:10%
     done_workers = (
@@ -328,8 +347,9 @@ def _create_tickets(db: Session, users: dict[str, User], devices: list[Device]) 
         [random.choice(over_pool) for _ in range(done_splits[3])]
     )
     random.shuffle(done_workers)
-    for w in done_workers:
-        _one(TICKET_DONE, _ts_2026(max_days_ago=120), w, _pick_solution())
+    done_days = _distribute(len(done_workers))
+    for i, w in enumerate(done_workers):
+        _one(TICKET_DONE, _fixed_ts(done_days[i]), w, _pick_solution())
 
     # ============ doing ============
     # w1: 20%  w2:45%  w3:25%  extra:10%
@@ -340,21 +360,19 @@ def _create_tickets(db: Session, users: dict[str, User], devices: list[Device]) 
         [random.choice(over_pool) for _ in range(doing_splits[3])]
     )
     random.shuffle(doing_workers)
-    for w in doing_workers:
-        _one(TICKET_DOING, _ts_2026(max_days_ago=7), w, None)
+    doing_days = _distribute(len(doing_workers))
+    for i, w in enumerate(doing_workers):
+        _one(TICKET_DOING, _fixed_ts(doing_days[i]), w, None)
 
-    # ============ pending 已派（接单池） ============
-    for w in core_all:
-        for _ in range(pend_per_core):
-            # pending 已派给某人（status=pending 但 assignee_id != null）
-            _one(TICKET_PENDING, _ts_2026(max_days_ago=2), w, None)
-    # ============ pending 未派（管理员派单池） ============
-    for _ in range(pend_unassigned):
-        _one(TICKET_PENDING, _ts_2026(max_days_ago=2), None, None)
+    # ============ pending（全部未分配，进入管理员派单池） ============
+    n_pend_total = sum(pend_per_core) + pend_unassigned
+    pend_days = _distribute(n_pend_total, recent=3, far=10)
+    for i in range(n_pend_total):
+        _one(TICKET_PENDING, _fixed_ts(pend_days[i]), None, None)
 
     # ============ over（超期）：只派给 extra01/extra02，3 个测试用户永远不出现 over ============
     for i in range(n_over):
-        _one(TICKET_OVER, _ts_2026(max_days_ago=120),
+        _one(TICKET_OVER, _fixed_ts(80 + i * 15),
              over_pool[i % len(over_pool)] if over_pool else None,
              "备件采购延误，预计 24 小时内到货更换。")
 
@@ -590,25 +608,33 @@ _GUIDE_SPECS = [
 
 
 def _create_guides(db: Session) -> tuple[list[Guide], Guide]:
+    """从 knowledge/data/guides.json 读 20 条作业指导并写入数据库。"""
+    guides_file = Path(__file__).resolve().parent.parent.parent / "knowledge" / "data" / "guides.json"
+    with open(guides_file, "r", encoding="utf-8") as f:
+        specs = json.load(f)
+
     guides: list[Guide] = []
-    for title, dtype, tag, dur, risk, steps in _GUIDE_SPECS:
+    for spec in specs:
         steps_obj = [
-            {"step": i + 1, "content": c, "tip": tip}
-            for i, (_, c, tip) in enumerate(steps)
+            {"step": s.get("step", i + 1), "content": s.get("content", ""), "tip": s.get("tip", "")}
+            for i, s in enumerate(spec.get("steps", []))
         ]
         g = Guide(
-            title=title,
-            device_type=dtype,
-            tag=tag,
+            title=spec.get("title", ""),
+            device_type=spec.get("device_type", "机械"),
+            tag=spec.get("tag"),
             steps_json=json.dumps(steps_obj, ensure_ascii=False),
-            risk_note=risk,
-            duration_min=dur,
+            risk_note=spec.get("risk_note"),
+            duration_min=spec.get("duration_min"),
+            difficulty=spec.get("difficulty"),
+            tools_json=json.dumps(spec.get("required_tools", []), ensure_ascii=False) if spec.get("required_tools") else None,
+            applicable_devices=spec.get("applicable_devices"),
             created_at=_ts_2026(max_days_ago=180),
         )
         db.add(g)
         guides.append(g)
     db.flush()
-    # 最后一条（安全光幕）留给"员工贡献入库"关联
+    # 最后一条（有限空间作业规范）留给"员工贡献入库"关联
     return guides, guides[-1]
 
 
@@ -669,124 +695,6 @@ def _create_reports(
             sync_guide.source_report_id = r.id
             sync_guide.contributor_name = worker.fullname
         return r
-
-    # ========== worker1 李建华（资深）：1 份待审核 + 1 份已入库案例 + 1 份已驳回 ==========
-    # 待审
-    _mk("KR-20260712-101", pool[0], ("MC", 5),
-        "CNC 加工中心主轴热伸长现场补偿技巧（实战版）",
-        "AI 建议降速，但现场必须保产能，我们通过 3 点补偿解决了热漂移",
-        "环境温度上午/下午差 8℃，主轴热伸长 0.03mm，精镗孔尺寸超差",
-        "① 主轴恒温冷却机设定 22℃固定；② 机内加装 3 点温度传感器；③ 编写宏程序实时补偿 WZ 轴偏移量，连续 3 班尺寸公差稳定 ±0.005mm。",
-        REPORT_SOURCE_TICKET, TYPE_CASE, REPORT_PENDING,
-        tag="机械", level="high")
-
-    # 已入库案例（同步进案例库）
-    r_synced_case = _mk("KR-20260710-102", pool[0], ("VA", 5),
-        "比例方向阀中位漂移现场快速调整",
-        "AI 给出了排查步骤，但没有现场快速调整技巧，20 分钟就调好",
-        "阀芯对中弹簧疲劳+阀体内杂质卡滞",
-        "① 清洗阀芯+更换弹簧；② 放大器零位重新校准；③ 中位泄漏量降至原厂规格 1/10 以下。",
-        REPORT_SOURCE_MANUAL, TYPE_CASE, REPORT_SYNCED_CASE,
-        review_remark="方案详实，已作为案例入库，供全车间参考。",
-        synced=True, tag="液压", level="mid")
-    if sync_case:
-        sync_case.title = "比例方向阀中位漂移（员工实践版）"
-        sync_case.fault = "指令信号 0% 时执行器仍缓慢漂移 0.5~1mm/s，造成定位不准"
-        sync_case.cause = r_synced_case.cause
-        sync_case.solution = r_synced_case.solution
-        sync_case.summary = r_synced_case.summary
-        sync_case.tag = "液压"
-
-    # 驳回（李师傅另一份）
-    _mk("KR-20260708-103", pool[0], ("HY", 3),
-        "四柱液压机压力脉动用木槌敲一下阀组就好了",
-        "现场赶进度，按 AI 说拆太慢，直接用木槌敲了两下溢流阀恢复了",
-        "疑似油液污染短暂卡阀芯，未定位根因",
-        "木槌对准溢流阀尾端，侧向敲击 2-3 次，力度约 20Nm 即可恢复。",
-        REPORT_SOURCE_MANUAL, TYPE_CASE, REPORT_REJECTED,
-        review_remark="【驳回】敲击液压阀存在阀体破裂/密封失效风险，属违规操作；请拆检溢流阀、滤油机旁路过滤 4h、提交前后污染度对比报告后重新提交。",
-        synced=False, tag="液压", level="low")
-
-    # ========== worker2 张伟（电气）：1 份待审核 + 1 份审核通过待入库 + 1 份已入库作业指导 ==========
-    # 待审
-    _mk("KR-20260712-201", pool[1], ("VFD", 7),
-        "变频器报 F0001 过流（制动电阻选型小了）",
-        "AI 让换电机，现场实际是再生能量过大直流母线过压触发过流",
-        "现场制动电阻 20Ω 1kW 偏小，大惯量滚筒 60s 减速能耗 24kW·s",
-        "① 制动电阻更换为 10Ω 6kW 波纹铝壳；② 制动门槛电压由 780V 降至 750V；③ 减速时间延长到 90s，连续 50 次启停无报警。",
-        REPORT_SOURCE_SEARCH, TYPE_GUIDE, REPORT_PENDING,
-        tag="电气", level="mid")
-
-    # 审核通过待入库
-    _mk("KR-20260711-202", pool[1], ("PD", 4),
-        "低压配电柜温升过高快速治理（不停机方案）",
-        "AI 要求停电清扫，但产线不能停，我们用临时风机 + 端子测温解决了",
-        "夏季 35℃ 时柜内温度 62℃，进线母排端子氧化接触电阻增大",
-        "① 柜外临时加装 2 台岗位风机对吹；② 红外逐点排查最热端子并在计划停机时重新打磨；③ 加装 4 台柜顶轴流风机（2 用 2 备），柜温降至 48℃。",
-        REPORT_SOURCE_TICKET, TYPE_CASE, REPORT_APPROVED,
-        review_remark="不停机方案很有价值，审核通过；请整理正式作业流程后由管理员同步入库。",
-        tag="电气", level="high")
-
-    # 已入库作业指导（同步进指导库）
-    r_synced_guide = _mk("KR-20260709-203", pool[1], ("PLC", 2),
-        "PLC 程序电池更换真实现场步骤（补充防丢细节）",
-        "SOP 太粗略，现场一次电容老化导致 20 秒内换完也丢了程序，加了 2 步保命",
-        "旧 SOP 未考虑 CPU 超级电容老化（保持 <10s），现场又没外接编程器",
-        "① 先插好外接 RAM/程序备份 SD 卡；② 新旧电池并排摆好；③ 15 秒内快速换完，联机读时钟校验。",
-        REPORT_SOURCE_TICKET, TYPE_GUIDE, REPORT_SYNCED_GUIDE,
-        review_remark="双保险做法非常实用，已合并进 SOP。",
-        synced=True, tag="电气", level="high")
-    if sync_guide:
-        new_steps = [
-            {"step": 1, "content": "主机通电 ≥10min，确认 SD 备份卡已插好且 LED 绿色常亮",
-             "tip": "备份卡是最后一道防线，必须插"},
-            {"step": 2, "content": "新旧电池并排摆好，方向一致贴标签标正负极",
-             "tip": "插反对电池和 CPU 都有风险"},
-            {"step": 3, "content": "打开 CPU 盖板，按住卡扣快速取下旧电池",
-             "tip": "超时 CPU 超级电容会放完"},
-            {"step": 4, "content": "15s 内推入新电池，正极朝上，确认卡扣到位",
-             "tip": "推荐双人配合，一人计时一人操作"},
-            {"step": 5, "content": "联机读时钟 + DB1.DBW0 数据寄存器校验，BAT 灯灭",
-             "tip": "数据不对立即从 SD 卡恢复"},
-            {"step": 6, "content": "旧电池贴危废标签，投入专用回收桶",
-             "tip": "锂电池不进生活垃圾桶"},
-        ]
-        sync_guide.title = "PLC 控制器电池更换（员工实践增补版）"
-        sync_guide.device_type = "电气"
-        sync_guide.tag = "电气·PLC"
-        sync_guide.steps_json = json.dumps(new_steps, ensure_ascii=False)
-        sync_guide.risk_note = "CPU 超级电容老化时保持时间可能 <15s，必须双人操作并确保备份卡就位。"
-        sync_guide.duration_min = 12
-
-    # ========== worker3 黄丽（新人）：1 份待审核 + 1 份审核通过 + 1 份驳回（仪表类） ==========
-    # 待审
-    _mk("KR-20260712-301", pool[2] if len(pool) > 2 else pool[1], ("FT", 3),
-        "电磁流量计空管误报警的现场屏蔽方案",
-        "AI 让我装过滤器，但现场没备，用接地和屏蔽就解决了误报",
-        "变频器启停干扰 + 现场接地不好，流量计偶尔报空管停机",
-        "① 流量计本体两端法兰做接地跨接 ≤1Ω；② 屏蔽层单端接地（控制室侧）；③ 参数中把空管检测阈值从 98% 下调到 92%，连续 72h 无误报。",
-        REPORT_SOURCE_MANUAL, TYPE_GUIDE, REPORT_PENDING,
-        tag="仪表", level="mid")
-
-    # 审核通过
-    _mk("KR-20260711-302", pool[2] if len(pool) > 2 else pool[1], ("PT", 6),
-        "压力变送器零点漂移快速校准（在线带压）",
-        "AI 让我拆回实验室，但工艺不允许拆，现场做了在线校准",
-        "引压管液柱压力 + 变送器 5‰/年漂移累积导致误差偏大",
-        "① 关三阀组高压/低压阀，开平衡阀使两室通大气压；② 记录当前零点并通过 HART 手操器重写零位；③ 关闭平衡阀打开高低压阀恢复，与就地压力表对比误差 ≤±0.2%。",
-        REPORT_SOURCE_TICKET, TYPE_CASE, REPORT_APPROVED,
-        review_remark="在线带压校准流程完整，审核通过；建议补充安全警示后入库。",
-        tag="仪表", level="mid")
-
-    # 驳回
-    _mk("KR-20260708-303", pool[2] if len(pool) > 2 else pool[1], ("SG", 1),
-        "安全光幕误触发我直接用胶带贴住了发射器",
-        "现场物料偶尔飞出挡住光幕，图省事就贴了发射器镜头",
-        "严重违规，破坏了安全防护功能",
-        "用黑色电工胶带把光幕发射器上下两条镜头各贴 1/3 宽度，就不误报了。",
-        REPORT_SOURCE_MANUAL, TYPE_GUIDE, REPORT_REJECTED,
-        review_remark="【严重驳回】遮挡安全光幕属于破坏安全联锁，立即整改！请拆除胶带、排查物料飞出原因并加装导料挡板，重新提交合规方案。",
-        synced=False, tag="安全", level="critical")
 
     db.flush()
 
@@ -860,8 +768,9 @@ def _create_initial_notifications(db: Session, users: dict[str, User]) -> None:
 # 主入口
 # ============================================================
 def seed_if_empty(db: Session) -> bool:
-    """只有 users 表为空才执行 seed，返回是否实际执行了插入"""
-    if db.query(User).count() > 0:
+    """设备表为空时执行 seed（设备是工单/报告的根基），返回是否实际执行了插入"""
+    from .models import Device
+    if db.query(Device).count() > 0:
         return False
     users = _create_users(db)
     devices = _create_devices(db)

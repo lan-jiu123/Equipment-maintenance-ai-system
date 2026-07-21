@@ -1,5 +1,54 @@
 <template>
   <div class="container">
+    <transition name="modal-fade">
+      <div v-if="showDetailModal" class="modal-overlay" @click="showDetailModal = false">
+        <div class="modal-card" @click.stop>
+          <div class="modal-header">
+            <h3>设备详情</h3>
+            <button class="modal-close" @click="showDetailModal = false">×</button>
+          </div>
+          <div class="modal-body">
+            <div v-if="detailDevice" class="detail-grid">
+              <div class="detail-row"><span class="detail-label">设备编号</span><span class="detail-value mono">{{ detailDevice.code }}</span></div>
+              <div class="detail-row"><span class="detail-label">设备名称</span><span class="detail-value">{{ detailDevice.name }}</span></div>
+              <div class="detail-row"><span class="detail-label">设备大类</span><span class="detail-value">{{ detailDevice.tag || '-' }}</span></div>
+              <div class="detail-row"><span class="detail-label">所在区域</span><span class="detail-value">{{ detailDevice.location || '-' }}</span></div>
+              <div class="detail-row"><span class="detail-label">型号/规格</span><span class="detail-value">{{ detailDevice.spec || '-' }}</span></div>
+              <div class="detail-row"><span class="detail-label">健康度</span><span class="detail-value"><span class="health-val" :class="healthTextClass(detailDevice.health)">{{ detailDevice.health || 0 }}%</span></span></div>
+              <div class="detail-row"><span class="detail-label">设备状态</span><span class="detail-value"><span class="status-pill" :class="'st-'+statusCls(detailDevice.status)">{{ statusLabel(detailDevice.status) }}</span></span></div>
+              <div class="detail-row"><span class="detail-label">启用日期</span><span class="detail-value">{{ detailDevice.commission_date ? detailDevice.commission_date.slice(0,10) : '-' }}</span></div>
+              <div class="detail-row"><span class="detail-label">最近维修</span><span class="detail-value">{{ detailDevice.last_repair_at ? String(detailDevice.last_repair_at).slice(0,16).replace('T',' ') : '-' }}</span></div>
+              <div class="detail-row" v-if="detailDevice.remark"><span class="detail-label">备注</span><span class="detail-value">{{ detailDevice.remark }}</span></div>
+            </div>
+            <!-- 故障停机：故障报告区块 -->
+            <div v-if="detailDevice.status === 'down'" class="fault-block">
+              <div class="fault-block-title">⚠️ 故障报告</div>
+              <div class="fault-block-body">
+                <div class="detail-row"><span class="detail-label">上报人</span><span class="detail-value">{{ detailDevice.fault_reporter_name || '—' }}</span></div>
+                <div class="detail-row"><span class="detail-label">上报时间</span><span class="detail-value mono">{{ detailDevice.fault_time_ts ? formatFaultTime(detailDevice.fault_time_ts) : '—' }}</span></div>
+                <div class="detail-row"><span class="detail-label">故障描述</span><span class="detail-value fault-desc">{{ detailDevice.fault_desc || '—' }}</span></div>
+                <div class="detail-row" v-if="detailDevice.fault_attachments && detailDevice.fault_attachments.length">
+                  <span class="detail-label">附件（{{ detailDevice.fault_attachments.length }}）</span>
+                  <span class="detail-value">
+                    <div class="fault-attach-list">
+                      <div v-for="att in detailDevice.fault_attachments" :key="att.id" class="fault-attach-item">
+                        <span class="fault-attach-name">📎 {{ att.filename }}</span>
+                        <a class="fault-attach-view" :href="downloadDeviceFaultAttachUrl(detailDevice.id, att.id)" target="_blank">查看</a>
+                        <button class="fault-attach-del" @click="deleteFaultAttach(detailDevice.id, att.id)" type="button">删除</button>
+                      </div>
+                    </div>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" @click="showDetailModal = false">关闭</button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <section class="hero-mini">
       <div>
         <div class="crumb"><router-link to="/home">仪表盘</router-link> · <span>设备管理</span></div>
@@ -16,32 +65,32 @@
     </section>
 
     <section class="stats-grid mini">
-      <div class="stat-card card">
-        <div class="stat-icon blue">🏷️</div>
+      <div class="stat-card card" data-cat="total">
+        <div class="stat-icon">🏷️</div>
         <div class="stat-info">
           <div class="stat-value">{{ stats.total }}</div>
           <div class="stat-label">注册设备总数</div>
           <div class="stat-trend up">↑ 实时统计</div>
         </div>
       </div>
-      <div class="stat-card card">
-        <div class="stat-icon green">✅</div>
+      <div class="stat-card card" data-cat="ok">
+        <div class="stat-icon">✅</div>
         <div class="stat-info">
           <div class="stat-value">{{ stats.ok }}</div>
           <div class="stat-label">正常运行</div>
           <div class="stat-trend up">占比 {{ stats.goodPct }}%</div>
         </div>
       </div>
-      <div class="stat-card card">
-        <div class="stat-icon orange">⚠</div>
+      <div class="stat-card card" data-cat="repair">
+        <div class="stat-icon">⚠</div>
         <div class="stat-info">
           <div class="stat-value">{{ stats.repair }}</div>
           <div class="stat-label">维修中</div>
           <div class="stat-trend down">处理中</div>
         </div>
       </div>
-      <div class="stat-card card">
-        <div class="stat-icon red">🛑</div>
+      <div class="stat-card card" :class="{ 'is-alert': stats.down > 0 }" data-cat="down">
+        <div class="stat-icon">🛑</div>
         <div class="stat-info">
           <div class="stat-value">{{ stats.down }}</div>
           <div class="stat-label">故障停机中</div>
@@ -114,6 +163,7 @@
             <td>
               <button class="btn btn-outline btn-xs" @click="detail(d)">详情</button>
               <button class="btn btn-primary btn-xs" @click="dispatch(d)" :disabled="d.status==='normal'">派维修</button>
+              <button class="btn btn-danger btn-xs" @click="deleteDevice(d)">删除</button>
             </td>
           </tr>
         </tbody>
@@ -133,7 +183,10 @@
 
 <script>
 import { toast } from '../utils/request'
-import { listDevicesApi, deviceStatsApi } from '../utils/api'
+import {
+  listDevicesApi, deviceStatsApi, deleteDeviceApi,
+  downloadDeviceFaultAttachUrl, deleteDeviceFaultAttachApi
+} from '../utils/api'
 
 const STATUS_LABEL = {
   normal:    '正常运行',
@@ -172,7 +225,9 @@ export default {
       allDevices: [],
       loading: false,
       stats: { total: 0, ok: 0, repair: 0, down: 0, goodPct: 0 },
-      page: 1, size: 20
+      page: 1, size: 20,
+      showDetailModal: false,
+      detailDevice: null
     }
   },
   computed: {
@@ -219,7 +274,24 @@ export default {
     this.reloadStats()
     this.loadAll()
   },
+  mounted() {
+    this._resolveRouteDevice()
+    this.$watch(() => this.$route && this.$route.query, () => this._resolveRouteDevice())
+  },
   methods: {
+    _resolveRouteDevice() {
+      // 从通知跳转过来时携带 did，自动打开该设备的详情弹窗
+      const did = this.$route && this.$route.query && this.$route.query.did
+      if (!did) return
+      const id = Number(did)
+      if (!Number.isFinite(id)) return
+      const open = () => {
+        const dev = this.allDevices.find(d => Number(d.id) === id)
+        if (dev) this.detail(dev)
+      }
+      if (this.allDevices.length) open()
+      else this.$watch('allDevices', v => { if (v.length) open() }, { once: true })
+    },
     toast,
     async reloadStats() {
       try {
@@ -255,22 +327,53 @@ export default {
     statusLabel(s) { return STATUS_LABEL[s] || s || '未知' },
     healthClass(h) { return h >= 90 ? 'good' : h >= 70 ? 'warn' : 'bad' },
     healthTextClass(h) { return this.healthClass(h) },
-    detail(d) {
-      const s = [
-        '设备编号：' + d.code,
-        '设备名称：' + d.name,
-        '大类：' + (d.tag || '-'),
-        '位置：' + (d.location || '-'),
-        '规格：' + (d.spec || '-'),
-        '健康度：' + (d.health||0) + '%',
-        '状态：' + this.statusLabel(d.status)
-      ]
-      if (d.last_repair_at) s.push('最近维修：' + String(d.last_repair_at).slice(0,16).replace('T',' '))
-      if (d.remark) s.push('备注：' + d.remark)
-      alert(s.join('\n'))
+    async detail(d) {
+      // 先显示缓存数据（立刻开弹窗），再从后端拉最新数据（含故障附件）
+      this.detailDevice = d
+      this.showDetailModal = true
+      try {
+        const fresh = await getDeviceApi(d.id)
+        if (fresh) this.detailDevice = fresh
+      } catch (_) {}
     },
     dispatch(d) {
       this.$router.push('/admin?tab=repair&device=' + encodeURIComponent(d.code || ''))
+    },
+    formatFaultTime(ts) {
+      if (!ts) return '-'
+      const d = new Date(Number(ts) * 1000)
+      const Y = d.getFullYear()
+      const M = String(d.getMonth() + 1).padStart(2, '0')
+      const D = String(d.getDate()).padStart(2, '0')
+      const h = String(d.getHours()).padStart(2, '0')
+      const m = String(d.getMinutes()).padStart(2, '0')
+      return `${Y}-${M}-${D} ${h}:${m}`
+    },
+    async deleteDevice(d) {
+      if (!confirm(`确认删除设备「${d.name}」（${d.code}）？此操作不可恢复。`)) return
+      try {
+        await deleteDeviceApi(d.id)
+        toast('设备已删除', 'success')
+        this.reloadStats()
+        this.loadAll()
+      } catch (e) {
+        toast('删除失败：' + (e.message || '请重试'), 'error')
+      }
+    },
+    async deleteFaultAttach(deviceId, attachId) {
+      if (!confirm('确认删除此附件？')) return
+      try {
+        await deleteDeviceFaultAttachApi(deviceId, attachId)
+        toast('附件已删除', 'success')
+        // 从本地列表中移除该附件，弹窗即时刷新
+        const dev = this.allDevices.find(x => x.id === deviceId)
+        if (dev && dev.fault_attachments) {
+          dev.fault_attachments = dev.fault_attachments.filter(a => a.id !== attachId)
+          this.detailDevice = { ...dev }
+        }
+      } catch (e) {
+        toast('删除失败：' + (e.message || '请重试'), 'error')
+      }
     }
   }
 }
@@ -288,6 +391,79 @@ export default {
 .search-box input { flex: 1; background: transparent; border: none; outline: none; color: var(--text-primary); font-size: 0.875rem; }
 
 .stats-grid.mini { grid-template-columns: repeat(4, 1fr); gap: 16px; display: grid; margin-bottom: 24px; }
+
+/* 四层颜色主题：左竖条 + 背景晕染 */
+.stat-card {
+  display: flex; align-items: center; gap: 14px;
+  position: relative; overflow: hidden;
+  padding: 18px 20px;
+}
+.stat-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 4px; border-radius: 0 4px 4px 0;
+}
+.stat-card::after {
+  content: ''; position: absolute; right: -30px; bottom: -30px;
+  width: 100px; height: 100px; border-radius: 50%;
+  opacity: 0.08; pointer-events: none;
+}
+.stat-card[data-cat="total"]::before,
+.stat-card[data-cat="total"]::after   { background: var(--primary); }
+.stat-card[data-cat="ok"]::before,
+.stat-card[data-cat="ok"]::after     { background: var(--accent-green); }
+.stat-card[data-cat="repair"]::before,
+.stat-card[data-cat="repair"]::after { background: var(--accent-orange); }
+.stat-card[data-cat="down"]::before,
+.stat-card[data-cat="down"]::after   { background: var(--accent-red); }
+
+/* 图标色块 */
+.stat-icon {
+  width: 52px; height: 52px; border-radius: var(--radius-lg);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.375rem; flex-shrink: 0; position: relative; z-index: 1;
+}
+.stat-card[data-cat="total"] .stat-icon   { color: var(--primary);       background: var(--primary-subtle);              border: 1px solid var(--border-active); }
+.stat-card[data-cat="ok"] .stat-icon      { color: var(--accent-green);  background: rgba(16,185,129,0.10);               border: 1px solid rgba(16,185,129,0.18); }
+.stat-card[data-cat="repair"] .stat-icon  { color: var(--accent-orange); background: rgba(245,158,11,0.10);               border: 1px solid rgba(245,158,11,0.18); }
+.stat-card[data-cat="down"] .stat-icon    { color: var(--accent-red);    background: rgba(239,68,68,0.10);                border: 1px solid rgba(239,68,68,0.18); }
+
+/* 文案 */
+.stat-info { flex: 1; min-width: 0; }
+.stat-value {
+  font-size: 1.625rem; font-weight: 700;
+  font-family: 'Orbitron', sans-serif; line-height: 1.1;
+  color: var(--text-primary);
+}
+.stat-label { font-size: 0.8125rem; color: var(--text-secondary); margin-top: 4px; }
+.stat-trend {
+  font-size: 0.6875rem; font-family: 'JetBrains Mono', monospace;
+  margin-top: 6px; font-weight: 600;
+}
+.stat-trend.up   { color: var(--accent-green); }
+.stat-trend.down { color: var(--accent-orange); }
+
+/* 故障停机 —— 呼吸红光（仅 stats.down > 0 时渲染 .is-alert）*/
+.stat-card.is-alert {
+  animation: alertBreathe 2s ease-in-out infinite;
+}
+.stat-card.is-alert::before {
+  animation: alertBar 2s ease-in-out infinite;
+}
+.stat-card.is-alert .stat-icon {
+  animation: alertIcon 2s ease-in-out infinite;
+}
+@keyframes alertBreathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 22px 4px rgba(239, 68, 68, 0.45); }
+}
+@keyframes alertBar {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+@keyframes alertIcon {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 16px 3px rgba(239, 68, 68, 0.6); }
+}
 
 .filters-row { padding: 14px 18px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px; }
 .filters-group { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
@@ -386,4 +562,87 @@ export default {
 }
 .pagination-info { font-size: 0.75rem; }
 .pagination-ctrl { display: flex; gap: 6px; }
+
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.85); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
+}
+.modal-card {
+  background: #1a1d24; border-radius: var(--radius);
+  width: 90%; max-width: 520px; max-height: 85vh;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 20px; border-bottom: 1px solid var(--border-subtle);
+}
+.modal-header h3 { margin: 0; font-size: 1rem; }
+.modal-close {
+  background: none; border: none; font-size: 1.5rem;
+  color: var(--text-muted); cursor: pointer;
+  padding: 0 8px; line-height: 1;
+}
+.modal-close:hover { color: var(--text-primary); }
+.modal-body { padding: 20px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+.modal-footer {
+  padding: 14px 20px; border-top: 1px solid var(--border-subtle);
+  display: flex; justify-content: flex-end; gap: 10px;
+}
+.detail-grid { display: flex; flex-direction: column; gap: 12px; }
+.detail-row { display: flex; gap: 16px; }
+.detail-label {
+  width: 100px; font-size: 0.75rem; color: var(--text-muted);
+  flex-shrink: 0; padding-top: 4px;
+}
+.detail-value {
+  flex: 1; font-size: 0.875rem; color: var(--text-primary);
+  padding-top: 4px; word-break: break-all;
+}
+
+.fault-block {
+  margin-top: 16px; border-top: 1px solid var(--border-subtle);
+  padding-top: 14px;
+}
+.fault-block-title {
+  font-size: 0.875rem; font-weight: 700; color: var(--accent-red);
+  margin-bottom: 10px;
+}
+.fault-block-body { display: flex; flex-direction: column; gap: 10px; }
+.fault-desc {
+  white-space: pre-wrap; line-height: 1.5;
+  background: rgba(255, 71, 87, 0.06); border-radius: 6px;
+  padding: 8px 10px; display: block;
+}
+.fault-attach-list { display: flex; flex-direction: column; gap: 6px; }
+.fault-attach-item {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 0.8125rem;
+}
+.fault-attach-name { flex: 1; color: var(--text-secondary); }
+.fault-attach-view {
+  color: var(--primary); text-decoration: none; font-size: 0.75rem;
+  padding: 2px 10px; border: 1px solid var(--border-active);
+  border-radius: 4px;
+}
+.fault-attach-view:hover { background: var(--primary-subtle); }
+.fault-attach-del {
+  background: none; border: 1px solid rgba(255, 71, 87, 0.3);
+  color: var(--accent-red); font-size: 0.75rem; cursor: pointer;
+  padding: 2px 10px; border-radius: 4px;
+}
+.fault-attach-del:hover { background: rgba(255, 71, 87, 0.12); }
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
 </style>

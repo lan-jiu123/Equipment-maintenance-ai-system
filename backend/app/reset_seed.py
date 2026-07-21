@@ -13,7 +13,7 @@ def reset_and_seed() -> None:
     try:
         # 临时关 FK 约束，避免删除顺序问题
         db.execute(sa_text("PRAGMA foreign_keys=OFF"))
-        for tbl in ("knowledge_reports", "tickets", "reviews",
+        for tbl in ("notifications", "knowledge_reports", "tickets", "reviews",
                     "cases", "guides", "devices", "users"):
             try:
                 db.execute(sa_text(f"DELETE FROM {tbl}"))

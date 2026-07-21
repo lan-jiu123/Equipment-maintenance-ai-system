@@ -1,13 +1,12 @@
 #!/bin/bash
 # ============================================================
-# 设备检修AI系统 - 一键部署启动脚本
-# 适配：银河麒麟高级服务器版 V10/V11 + LoongArch架构
+# 设备检修AI系统 - 一键部署启动脚本（融合版：千问/RAG/知识库）
+# 适配：银河麒麟 V10/V11 + LoongArch / 通用 x86_64 虚拟机
 #
 # 用法：
-#   bash deploy/start.sh           # 默认云端模式（LongCat API）
-#   bash deploy/start.sh --cloud   # 云端模式（显式）
-#   bash deploy/start.sh --offline # 离线模式（Ollama 本地模型）
-#   bash deploy/start.sh --both    # 双模式（可在 .env 中切换）
+#   bash deploy/start.sh --qwen      # 默认推荐：云端千问（队友申请的 Key）
+#   bash deploy/start.sh --longcat   # LongCat 云端模式
+#   bash deploy/start.sh --offline   # 离线模式（Ollama 本地模型）
 # ============================================================
 
 set -euo pipefail
@@ -16,350 +15,399 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
-MODE="${1:-cloud}"
+MODE="${1:-qwen}"
 INSTALL_LOG="$PROJECT_DIR/install.log"
+: > "$INSTALL_LOG"
 
 echo "=========================================="
-echo "  设备检修AI系统 - 部署启动脚本 v2.0"
-echo "  目标环境：银河麒麟 V10/V11 + LoongArch"
+echo "  设备检修AI系统 - 部署启动脚本 v3.0（融合版）"
+echo "  含：千问云端 LLM + RAG 混合检索 + 知识库自动导入"
 echo "=========================================="
 echo ""
 
 # ---- 颜色定义 ----
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log_info()  { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_ok()    { echo -e "${GREEN}[OK]${NC} $1"; }
+log_ok()    { echo -e "${GREEN}[OK ]${NC} $1"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_error() { echo -e "${RED}[ERR ]${NC} $1"; }
 
-# ---- 1. 系统环境检测 ----
+# ============================================================
+#  [1/8] 系统环境检测
+# ============================================================
 echo "=========================================="
-echo "  [步骤 1/7] 系统环境检测"
+echo "  [步骤 1/8] 系统环境检测"
 echo "=========================================="
 
 ARCH=$(uname -m 2>/dev/null || echo "unknown")
 CPU_CORES=$(nproc 2>/dev/null || echo "4")
 MEM_TOTAL=$(free -m 2>/dev/null | awk '/Mem:/{print $2}' || echo "8192")
-DISK_AVAIL=$(df -BG . 2>/dev/null | awk 'NR==2{print $4}' | sed 's/G//' || echo "256")
+DISK_AVAIL=$(df -BG . 2>/dev/null | awk 'NR==2{print $4}' | sed 's/G//' || echo "50")
 
-log_info "CPU架构: $ARCH"
-log_info "CPU核心数: $CPU_CORES (要求: 四核及以上)"
-log_info "内存: ${MEM_TOTAL}MB (要求: 8GB以上)"
-log_info "可用磁盘: ${DISK_AVAIL}GB (要求: 256GB以上)"
+log_info "CPU架构     : $ARCH"
+log_info "CPU核心数   : $CPU_CORES (推荐 ≥4 核)"
+log_info "内存        : ${MEM_TOTAL}MB (推荐 ≥8GB，千问云端模式 ≥4GB 可运行)"
+log_info "可用磁盘    : ${DISK_AVAIL}GB (推荐 ≥20GB)"
 
-# 检测操作系统
-if [ -f /etc/kylin-release ]; then
-    KYLIN_VERSION=$(cat /etc/kylin-release | head -1)
-    log_ok "检测到银河麒麟操作系统: $KYLIN_VERSION"
-elif [ -f /etc/os-release ]; then
-    . /etc/os-release
-    log_info "操作系统: $NAME $VERSION"
-fi
+[ -f /etc/kylin-release ] && log_ok "检测到银河麒麟: $(head -1 /etc/kylin-release)"
+[ -f /etc/os-release ] && . /etc/os-release && log_info "操作系统  : $NAME $VERSION"
 
-# 检查硬件要求
-if [ "$ARCH" != "loongarch64" ] && [ "$ARCH" != "aarch64" ]; then
-    log_warn "当前架构为 $ARCH，非 LoongArch 架构"
-    log_warn "竞赛要求在 LoongArch 架构上运行"
-fi
-
-if [ "$CPU_CORES" -lt 4 ]; then
-    log_warn "CPU核心数不足4核，可能影响性能"
-fi
-
-if [ "$MEM_TOTAL" -lt 8000 ]; then
-    log_warn "内存小于8GB，可能影响大模型运行"
-fi
-
-# 检查 Python
-if command -v python3 &> /dev/null; then
-    PYTHON_VERSION=$(python3 --version 2>&1)
-    log_info "Python版本: $PYTHON_VERSION"
-    if [[ ! "$PYTHON_VERSION" =~ Python\ 3\.(10|11|12) ]]; then
-        log_warn "推荐 Python 3.10-3.12，当前版本可能存在兼容性问题"
+# Python 检测
+if command -v python3 >/dev/null 2>&1; then
+    PY_VER=$(python3 --version 2>&1)
+    log_info "$PY_VER"
+    if [[ ! "$PY_VER" =~ Python\ 3\.(10|11|12) ]]; then
+        log_warn "推荐 Python 3.10~3.12，当前版本可能有兼容性问题"
     fi
 else
-    log_error "未安装 Python3，请先安装"
+    log_error "未检测到 python3，请先安装 (yum/apt install -y python3 python3-pip python3-venv)"
     exit 1
 fi
 
-echo ""
-
-# ---- 2. 安装系统依赖 ----
-echo "=========================================="
-echo "  [步骤 2/7] 安装系统依赖"
-echo "=========================================="
-
-install_package() {
-    local pkg="$1"
-    if command -v "$pkg" &> /dev/null; then
-        log_ok "$pkg 已安装"
-        return 0
-    fi
-    log_info "安装 $pkg..."
-    if command -v yum &> /dev/null; then
-        sudo yum install -y "$pkg" >> "$INSTALL_LOG" 2>&1 || true
-    elif command -v apt &> /dev/null; then
-        sudo apt install -y "$pkg" >> "$INSTALL_LOG" 2>&1 || true
-    elif command -v dnf &> /dev/null; then
-        sudo dnf install -y "$pkg" >> "$INSTALL_LOG" 2>&1 || true
-    fi
-    if command -v "$pkg" &> /dev/null; then
-        log_ok "$pkg 安装成功"
+# Node 检测（如果 dist 不存在就需要 build）
+if [ ! -d "frontend/dist" ] || [ -z "$(ls -A frontend/dist 2>/dev/null)" ]; then
+    if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+        log_info "Node $(node -v) / npm $(npm -v) 就绪（将自动 build 前端）"
     else
-        log_warn "$pkg 安装失败（可能不影响运行）"
+        log_warn "前端未构建且未检测到 node/npm，请先在本机 build 后再上传，或："
+        echo "       (Ubuntu/Debian) sudo apt install -y nodejs npm"
+        echo "       (CentOS/Kylin)  sudo yum install -y nodejs npm"
     fi
-}
-
-install_package "curl"
-install_package "git"
+fi
 
 echo ""
 
-# ---- 3. 创建虚拟环境 ----
+# ============================================================
+#  [2/8] 系统依赖安装（curl/git/nginx 可选）
+# ============================================================
 echo "=========================================="
-echo "  [步骤 3/7] 创建虚拟环境"
+echo "  [步骤 2/8] 系统依赖"
 echo "=========================================="
+install_pkg() {
+    local p="$1"
+    command -v "$p" >/dev/null 2>&1 && { log_ok "$p 已存在"; return 0; }
+    log_info "安装 $p..."
+    if command -v yum >/dev/null 2>&1; then sudo yum install -y "$p" >> "$INSTALL_LOG" 2>&1 || true
+    elif command -v apt >/dev/null 2>&1; then sudo apt install -y "$p" >> "$INSTALL_LOG" 2>&1 || true
+    elif command -v dnf >/dev/null 2>&1; then sudo dnf install -y "$p" >> "$INSTALL_LOG" 2>&1 || true; fi
+    command -v "$p" >/dev/null 2>&1 && log_ok "$p 安装完成" || log_warn "$p 安装失败（通常不影响运行）"
+}
+install_pkg curl
+install_pkg nginx || true
+echo ""
+
+# ============================================================
+#  [3/8] 虚拟环境 + Python 依赖
+# ============================================================
+echo "=========================================="
+echo "  [步骤 3/8] 虚拟环境 + Python 依赖"
+echo "=========================================="
+
+set +e
 
 cd "$PROJECT_DIR"
 
-if [ -d "venv" ]; then
-    log_ok "虚拟环境已存在"
-else
+if [ ! -d "venv" ]; then
     log_info "创建虚拟环境..."
-    python3 -m venv venv
-    log_ok "虚拟环境创建成功"
+    python3 -m venv venv 2>>"$INSTALL_LOG"
+    log_ok "虚拟环境创建: $PROJECT_DIR/venv"
+else
+    log_ok "虚拟环境已存在"
 fi
-
+# shellcheck disable=SC1091
 source venv/bin/activate
 log_ok "虚拟环境已激活"
-
-echo ""
-
-# ---- 4. 安装 Python 依赖 ----
-echo "=========================================="
-echo "  [步骤 4/7] 安装 Python 依赖"
-echo "=========================================="
 
 log_info "升级 pip..."
 pip install --upgrade pip >> "$INSTALL_LOG" 2>&1
 
-log_info "安装项目依赖..."
-
+# LoongArch 编译环境准备
 if [ "$ARCH" = "loongarch64" ] || [ -f /etc/kylin-release ]; then
-    log_info "检测到 LoongArch/银河麒麟，使用龙芯镜像源..."
-    pip install --no-cache-dir -r requirements.txt \
-        -i https://pypi.loongnix.cn/loongnix/pypi/simple \
-        --trusted-host pypi.loongnix.cn >> "$INSTALL_LOG" 2>&1 || \
-    pip install --no-cache-dir -r requirements.txt \
-        -i https://pypi.tuna.tsinghua.edu.cn/simple >> "$INSTALL_LOG" 2>&1 || \
-    pip install --no-cache-dir -r requirements.txt --use-pep517 >> "$INSTALL_LOG" 2>&1
-else
-    pip install --no-cache-dir -r requirements.txt \
-        -i https://pypi.tuna.tsinghua.edu.cn/simple >> "$INSTALL_LOG" 2>&1 || \
-    pip install --no-cache-dir -r requirements.txt >> "$INSTALL_LOG" 2>&1
+    log_info "LoongArch/银河麒麟：安装编译依赖（gcc python3-devel）..."
+    if command -v yum >/dev/null 2>&1; then
+        sudo yum install -y gcc python3-devel make cmake >> "$INSTALL_LOG" 2>&1 || true
+    elif command -v apt >/dev/null 2>&1; then
+        sudo apt install -y gcc python3-dev make cmake >> "$INSTALL_LOG" 2>&1 || true
+    fi
+    log_ok "编译环境准备完成"
 fi
 
-log_ok "Python 依赖安装完成"
+log_info "安装 Python 依赖（分阶段：纯Python包 → 易编译包 → 特殊处理包）..."
+
+MIRROR_LOONG="https://pypi.loongnix.cn/loongnix/pypi/simple"
+MIRROR_TUNA="https://pypi.tuna.tsinghua.edu.cn/simple"
+MIRROR_HUAWEI="https://mirrors.huaweicloud.com/repository/pypi/simple"
+
+pip_install_with_retry() {
+    local pkg="$1"
+    log_info "安装 $pkg..."
+    pip install --no-cache-dir "$pkg" -i "$MIRROR_LOONG" --trusted-host pypi.loongnix.cn >> "$INSTALL_LOG" 2>&1 || \
+    pip install --no-cache-dir "$pkg" -i "$MIRROR_TUNA" >> "$INSTALL_LOG" 2>&1 || \
+    pip install --no-cache-dir "$pkg" -i "$MIRROR_HUAWEI" >> "$INSTALL_LOG" 2>&1 || \
+    pip install --no-cache-dir "$pkg" >> "$INSTALL_LOG" 2>&1
+    if [ $? -eq 0 ]; then
+        log_ok "$pkg 安装成功"
+        return 0
+    else
+        log_warn "$pkg 安装失败，尝试备选方案..."
+        return 1
+    fi
+}
+
+log_info "[阶段1] 纯Python包（fastapi, sqlalchemy, requests, pypdf, jieba...）"
+pip_install_with_retry "fastapi>=0.100"
+pip_install_with_retry "uvicorn>=0.20"
+pip_install_with_retry "sqlalchemy>=2.0"
+pip_install_with_retry "requests>=2.28"
+pip_install_with_retry "pypdf>=4.0"
+pip_install_with_retry "jieba>=0.42.1"
+pip_install_with_retry "python-multipart>=0.0.9"
+pip_install_with_retry "python-dotenv>=1.0"
+
+log_info "[阶段2] pydantic（兼容 v1/v2，避免 Rust 编译问题）"
+pip_install_with_retry "pydantic>=1.10,<3" || pip_install_with_retry "pydantic==1.10.14"
+log_info "跳过 pydantic-settings（LoongArch兼容优化）"
+
+log_info "[阶段3] openai SDK"
+pip_install_with_retry "openai==1.30.5"
+
+log_info "[阶段4] 安全相关包（passlib, jose）"
+pip_install_with_retry "passlib"
+pip_install_with_retry "passlib[bcrypt]" || {
+    log_warn "bcrypt 编译失败，使用纯Python pbkdf2 替代"
+    pip_install_with_retry "passlib"
+}
+pip_install_with_retry "python-jose[cryptography]" || {
+    log_warn "cryptography 编译失败，尝试纯Python版本"
+    pip_install_with_retry "python-jose"
+}
+
+log_ok "Python 依赖安装完成（部分包使用备选方案）"
+
+set -e
 
 echo ""
 
-# ---- 5. 配置环境变量 ----
+# ============================================================
+#  [4/8] 环境变量 .env 配置 + 模式切换
+# ============================================================
 echo "=========================================="
-echo "  [步骤 5/7] 配置环境变量"
+echo "  [步骤 4/8] 环境变量配置（模式：$MODE）"
 echo "=========================================="
 
 if [ ! -f ".env" ]; then
-    if [ -f ".env.example" ]; then
-        cp .env.example .env
-        log_ok "已创建 .env 配置文件"
-    fi
-fi
-
-# 根据部署模式配置 LLM_BACKEND
-if [ -f ".env" ]; then
-    case "$MODE" in
-        --offline)
-            log_info "配置为离线模式（Ollama 本地模型）..."
-            if grep -q "^LLM_BACKEND=" .env 2>/dev/null; then
-                sed -i 's/^LLM_BACKEND=.*/LLM_BACKEND=ollama/' .env
-            else
-                echo "LLM_BACKEND=ollama" >> .env
-            fi
-            log_ok "已配置为离线模式"
-            ;;
-        --cloud)
-            log_info "配置为云端模式（LongCat API）..."
-            if grep -q "^LLM_BACKEND=" .env 2>/dev/null; then
-                sed -i 's/^LLM_BACKEND=.*/LLM_BACKEND=longcat/' .env
-            else
-                echo "LLM_BACKEND=longcat" >> .env
-            fi
-            log_ok "已配置为云端模式"
-            ;;
-        --both|*)
-            log_info "双模式配置（默认 LongCat，可在 .env 中切换为 ollama）"
-            ;;
-    esac
-fi
-
-# 初始化数据目录
-mkdir -p data/logs data/pdfs data/images
-log_ok "数据目录已创建"
-
-echo ""
-
-# ---- 6. 准备前端文件 ----
-echo "=========================================="
-echo "  [步骤 6/7] 准备前端文件"
-echo "=========================================="
-
-if [ -d "frontend/dist" ] && [ "$(ls -A frontend/dist 2>/dev/null)" ]; then
-    log_ok "前端构建产物存在"
-    if [ -d "deploy/frontend" ]; then
-        rm -rf deploy/frontend/dist
-        cp -r frontend/dist deploy/frontend/
-        log_ok "前端文件已复制到 deploy/frontend/dist"
-    fi
+    cp .env.example .env
+    log_ok "已创建 .env（从 .env.example 复制）"
 else
-    log_warn "前端构建产物不存在，请运行: cd frontend && npm ci && npm run build"
+    log_ok ".env 已存在（保留原配置）"
+fi
+
+set_env() {
+    # set_env KEY VALUE  ——  修改或追加 .env 里的 KEY=VALUE
+    local key="$1" val="$2"
+    if grep -q "^${key}=" .env 2>/dev/null; then
+        # shellcheck disable=SC2016
+        sed -i "s|^${key}=.*|${key}=${val}|" .env
+    else
+        echo "${key}=${val}" >> .env
+    fi
+}
+
+case "$MODE" in
+    --qwen)
+        log_info "模式：云端千问（阿里云百炼）"
+        set_env "LLM_BACKEND" "longcat"  # 保留兼容值，实际优先看 QWEN_API_KEY
+        set_env "EMBEDDING_BACKEND" "local_hash"
+        set_env "AUTO_IMPORT_KNOWLEDGE" "true"
+        log_ok "默认模式：只要 .env 内 QWEN_API_KEY 非空，即自动走千问云端"
+        log_warn "请务必编辑 $PROJECT_DIR/.env 填入申请的 QWEN_API_KEY=sk-xxxx"
+        ;;
+    --longcat)
+        log_info "模式：LongCat 云端"
+        set_env "LLM_BACKEND" "longcat"
+        ;;
+    --offline)
+        log_info "模式：Ollama 离线本地模型"
+        set_env "LLM_BACKEND" "ollama"
+        ;;
+    *)
+        log_info "未指定模式，默认按 .env 已有配置运行（千问优先）"
+        ;;
+esac
+
+# 融合后：数据/上传目录（config.py 计算属性默认值）
+mkdir -p data data/logs data/uploads data/raw deploy/backend
+log_ok "数据目录创建: data/ data/logs data/uploads data/raw"
+
+echo ""
+
+# ============================================================
+#  [5/8] 前端构建（dist 不存在时自动 build）
+# ============================================================
+echo "=========================================="
+echo "  [步骤 5/8] 前端文件"
+echo "=========================================="
+
+if [ -d "frontend/dist" ] && [ -n "$(ls -A frontend/dist 2>/dev/null)" ]; then
+    log_ok "前端构建产物存在: frontend/dist/"
+else
+    if command -v npm >/dev/null 2>&1; then
+        log_info "自动构建前端（首次可能较慢）..."
+        cd frontend
+        if [ ! -d "node_modules" ]; then
+            log_info "npm ci（安装依赖）..."
+            npm ci --registry=https://registry.npmmirror.com >> "$INSTALL_LOG" 2>&1 || \
+            npm install --registry=https://registry.npmmirror.com >> "$INSTALL_LOG" 2>&1
+        fi
+        log_info "npm run build..."
+        npm run build >> "$INSTALL_LOG" 2>&1
+        cd "$PROJECT_DIR"
+        log_ok "前端构建完成: frontend/dist/"
+    else
+        log_warn "未检测到 npm，跳过前端构建。请先在本机 build 再上传整个 frontend/dist 目录。"
+    fi
+fi
+
+# 复制到 deploy/frontend/dist 给 nginx 用（保持 nginx.conf 注释路径一致）
+if [ -d "frontend/dist" ]; then
+    mkdir -p deploy/frontend
+    rm -rf deploy/frontend/dist
+    cp -r frontend/dist deploy/frontend/
+    log_ok "前端文件同步: deploy/frontend/dist/ （供 nginx 部署）"
 fi
 
 echo ""
 
-# ---- 7. 配置启动服务 ----
+# ============================================================
+#  [6/8] 初始化数据库 + seed 演示数据
+# ============================================================
 echo "=========================================="
-echo "  [步骤 7/7] 配置启动服务"
+echo "  [步骤 6/8] 数据库 + 演示数据（可选）"
 echo "=========================================="
 
-# 创建 systemd 服务文件
-sudo tee /etc/systemd/system/equipment-maintenance.service > /dev/null << EOF
+cd "$PROJECT_DIR/backend"
+DB_INIT_FLAG="../data/.db_initialized.flag"
+if [ ! -f "$DB_INIT_FLAG" ]; then
+    log_info "首次启动：初始化数据库结构 + seed 演示数据（admin/worker1/worker2/worker3）..."
+    python -c "from app.database import init_database; init_database()" >> "$INSTALL_LOG" 2>&1 || true
+    if [ -f "app/seed.py" ]; then
+        python -m app.seed >> "$INSTALL_LOG" 2>&1 || python app/seed.py >> "$INSTALL_LOG" 2>&1 || true
+    fi
+    touch "$DB_INIT_FLAG"
+    log_ok "数据库初始化完成（flag: $DB_INIT_FLAG）"
+else
+    log_ok "数据库已初始化，跳过（如需重置：rm $DB_INIT_FLAG 后重跑）"
+fi
+
+echo ""
+
+# ============================================================
+#  [7/8] systemd 服务配置
+# ============================================================
+echo "=========================================="
+echo "  [步骤 7/8] 注册 systemd 服务"
+echo "=========================================="
+
+sudo tee /etc/systemd/system/equipai.service > /dev/null << EOF
 [Unit]
-Description=Equipment Maintenance AI System
+Description=Equipment Maintenance AI System (融合版：千问 + RAG + 知识库)
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=$PROJECT_DIR/deploy/backend
+User=$(whoami)
+Group=$(id -gn)
+WorkingDirectory=$PROJECT_DIR/backend
 Environment="PATH=$PROJECT_DIR/venv/bin"
-ExecStart=$PROJECT_DIR/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+EnvironmentFile=-$PROJECT_DIR/.env
+ExecStart=$PROJECT_DIR/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=5
-StandardOutput=journal
-StandardError=journal
+StandardOutput=append:$PROJECT_DIR/data/logs/api.log
+StandardError=append:$PROJECT_DIR/data/logs/api.err.log
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 重新加载 systemd
 sudo systemctl daemon-reload 2>/dev/null || true
-sudo systemctl enable equipment-maintenance.service 2>/dev/null || true
-log_ok "systemd 服务已配置"
+sudo systemctl enable equipai.service 2>/dev/null || true
+log_ok "systemd 服务已注册: equipai.service"
 
 echo ""
 
-# ---- 启动服务 ----
-log_info "启动服务..."
-cd "$PROJECT_DIR/deploy/backend"
+# ============================================================
+#  [8/8] 启动后端 + 健康检查
+# ============================================================
+echo "=========================================="
+echo "  [步骤 8/8] 启动服务 + 健康检查"
+echo "=========================================="
 
-uvicorn app.main:app --host 0.0.0.0 --port 8000 2>&1 | tee ../data/logs/api.log &
+cd "$PROJECT_DIR/backend"
+
+log_info "启动后端（uvicorn，监听 0.0.0.0:8000）..."
+nohup "$PROJECT_DIR/venv/bin/uvicorn" app.main:app \
+    --host 0.0.0.0 --port 8000 --workers 1 \
+    >> "$PROJECT_DIR/data/logs/api.log" 2>>"$PROJECT_DIR/data/logs/api.err.log" &
 API_PID=$!
-echo $API_PID > ../data/logs/api.pid
-log_ok "后端PID: $API_PID"
+echo $API_PID > "$PROJECT_DIR/data/logs/api.pid"
+log_ok "后端 PID: $API_PID （日志: data/logs/api.{log,err.log}）"
 
-# 等待后端就绪（健康检查）
+# 等待就绪
 echo ""
-echo "等待后端就绪..."
-for i in $(seq 1 30); do
-    if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-        log_ok "后端已就绪"
+log_info "等待后端就绪（最长 60s）..."
+READY=0
+for i in $(seq 1 60); do
+    if curl -sf http://127.0.0.1:8000/health/ready > /dev/null 2>&1; then
+        READY=1
         break
-    fi
-    if [ "$i" -eq 30 ]; then
-        log_warn "后端未在30秒内就绪"
     fi
     sleep 1
 done
-
-# ---- Ollama 检测（离线模式）----
-echo ""
-echo "=========================================="
-echo "  [可选] Ollama 本地大模型检测"
-echo "=========================================="
-
-if command -v ollama &> /dev/null; then
-    log_ok "Ollama 已安装"
-    echo ""
-    echo "  可用模型列表："
-    ollama list 2>/dev/null | head -15 || echo "    (暂无已下载模型)"
-    echo ""
-    echo "  常用命令："
-    echo "    ollama pull qwen2.5:7b    # 下载通义千问模型"
-    echo "    ollama run qwen2.5:7b     # 运行模型"
+if [ "$READY" = "1" ]; then
+    log_ok "后端就绪，开始验证..."
+    HR=$(curl -sf http://127.0.0.1:8000/health/ready 2>/dev/null)
+    LLM_OK=$(echo "$HR" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('checks',{}).get('llm'))" 2>/dev/null || echo "?")
+    KB=$(echo "$HR" | python3 -c "import sys,json;d=json.load(sys.stdin);b=d.get('knowledge_bootstrap',{});print(f'{b.get('ready',0)} ready / {b.get('imported',0)} imported')" 2>/dev/null || echo "?")
+    log_info "大模型连通性 (llm): $LLM_OK （true=千问/LongCat 识别）"
+    log_info "知识库导入: $KB"
 else
-    log_info "Ollama 未安装，如需离线部署请执行："
-    echo ""
-    echo "    curl -fsSL https://ollama.com/install.sh | sh"
-    echo "    ollama pull qwen2.5:7b"
-    echo ""
+    log_warn "60 秒内未就绪，请查看日志 data/logs/api.err.log"
 fi
 
-# ---- 部署完成 ----
+# ---- nginx 建议 ----
 echo ""
 echo "=========================================="
-echo ""
-echo -e "  ${GREEN}✓ 部署完成！${NC}"
-echo ""
+echo -e "  ${GREEN}✓ 部署脚本执行完成${NC}"
 echo "=========================================="
 echo ""
-echo "  访问地址："
-echo "    前端界面:  http://localhost:8000"
-echo "    API文档:   http://localhost:8000/docs"
-echo "    健康检查:  http://localhost:8000/health"
+echo "  直接访问（不经过 nginx）："
+echo "    前端如果没 build，需要先前端单独 npm run dev -> http://虚拟机IP:5173"
+echo "    API 文档  : http://虚拟机IP:8000/docs"
+echo "    健康检查  : http://虚拟机IP:8000/health/ready"
 echo ""
-echo "  管理命令："
-echo "    sudo systemctl status equipment-maintenance  # 查看服务状态"
-echo "    sudo systemctl restart equipment-maintenance  # 重启服务"
-echo "    sudo journalctl -u equipment-maintenance -f   # 查看日志"
+echo "  推荐：用 nginx 统一 80 端口对外（前后端同域）："
+echo "    sudo cp deploy/nginx.conf /etc/nginx/conf.d/equipai.conf"
+echo "    # 编辑 /etc/nginx/conf.d/equipai.conf 里的 root 为：$PROJECT_DIR/deploy/frontend/dist"
+echo "    sudo nginx -t && sudo systemctl restart nginx"
+echo "    访问：http://虚拟机IP/"
 echo ""
-echo "  配置说明："
-echo "    配置文件: $PROJECT_DIR/.env"
-echo "    数据目录: $PROJECT_DIR/data/"
-echo "    安装日志: $INSTALL_LOG"
+echo "  演示账号："
+echo "    管理员   admin    / ad1234     (赵五 · 仪表盘)"
+echo "    检修员1  worker1  / 123456     (李建华)"
+echo "    检修员2  worker2  / 234567     (张伟)"
+echo "    检修员3  worker3  / 345678     (黄丽)"
+echo ""
+echo "  ❗ 必做一步：打开 $PROJECT_DIR/.env，在 QWEN_API_KEY= 后面填入队友申请的千问 Key"
+echo ""
+echo "  常用命令："
+echo "    systemctl status equipai          # 服务状态"
+echo "    systemctl restart equipai         # 重启（改完 .env/代码后必须）"
+echo "    tail -f data/logs/api.log         # 实时日志"
+echo "    bash deploy/backup.sh             # 备份 .env + 数据库 + 上传文件"
 echo ""
 
-# 最终健康检查
-sleep 2
-if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-    echo -e "  ${GREEN}✓ 后端服务运行正常${NC}"
-else
-    echo -e "  ${YELLOW}⚠ 后端服务可能未正常运行，请检查配置${NC}"
-fi
+trap 'echo ""; echo "停止中..."; kill -TERM $API_PID 2>/dev/null; rm -f "$PROJECT_DIR/data/logs/api.pid"; echo "已停止"' SIGINT SIGTERM
 
-echo ""
-echo "=========================================="
-
-# 捕获退出信号，清理子进程
-cleanup() {
-    echo ""
-    echo "正在停止服务..."
-    kill -TERM $API_PID 2>/dev/null
-    for i in $(seq 1 5); do
-        kill -0 $API_PID 2>/dev/null || break
-        sleep 1
-    done
-    kill -9 $API_PID 2>/dev/null
-    rm -f ../data/logs/api.pid
-    echo "服务已停止"
-    exit 0
-}
-
-trap cleanup SIGINT SIGTERM
-
-# 等待子进程
-wait
+# 不阻塞退出，交给 systemd/前台自行观察
+exit 0

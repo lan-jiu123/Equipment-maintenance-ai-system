@@ -137,8 +137,14 @@ class DeviceInfo(BaseModel):
     location: Optional[str] = None
     status: str
     status_label: str
+    health: int = 100
     last_repair_at: Optional[datetime] = None
     created_at_ts: Optional[int] = None
+    # 故障停机时返回的故障上报信息
+    fault_desc: Optional[str] = None
+    fault_reporter_name: Optional[str] = None
+    fault_time_ts: Optional[int] = None
+    fault_attachments: Optional[list] = None
 
 
 # ============ 2. 工单 ============
@@ -153,6 +159,7 @@ class TicketCreate(BaseModel):
 
 class TicketAssign(BaseModel):
     assignee_id: int = Field(..., description="指派的维修员 ID")
+    level: Optional[str] = Field(default=None, description="优先级：low/mid/high，不传则保持原值")
 
 
 class TicketComplete(BaseModel):
@@ -189,6 +196,9 @@ class ReportCreate(BaseModel):
     question: str = Field(..., min_length=5)
     cause: Optional[str] = None
     solution: str = Field(..., min_length=5)
+    repair_process: Optional[str] = Field(default=None, description="维修过程")
+    technical_measures: Optional[str] = Field(default=None, description="使用方法/技术措施")
+    repair_result: Optional[str] = Field(default=None, description="维修结果")
     summary: Optional[str] = None
     ticket_id: Optional[str] = None
 
@@ -210,6 +220,9 @@ class ReportInfo(BaseModel):
     question: Optional[str] = None
     cause: Optional[str] = None
     solution: Optional[str] = None
+    repair_process: Optional[str] = None
+    technical_measures: Optional[str] = None
+    repair_result: Optional[str] = None
     summary: Optional[str] = None
     status: str
     status_label: str
@@ -254,6 +267,9 @@ class GuideInfo(BaseModel):
     steps_json: Optional[str] = None
     risk_note: Optional[str] = None
     duration_min: Optional[int] = None
+    difficulty: Optional[int] = None
+    tools: List[str] = Field(default_factory=list)
+    applicable_devices: Optional[str] = None
     contributor_name: Optional[str] = None
     is_employee_contribution: bool
     created_at_ts: Optional[int] = None

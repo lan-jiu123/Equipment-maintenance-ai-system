@@ -62,6 +62,7 @@ export default {
         { path: '/search', label: '智能检索', icon: '🤖', group: '工具' },
         { path: '/guide', label: '作业指导', icon: '📖' },
         { path: '/case', label: '案例库', icon: '📚' },
+        { path: '/graph', label: '知识图谱', icon: '🧠' },
         { path: '/users', label: '用户管理', icon: '👥', group: '管理', badge: 'ADMIN', badgeCls: 'red' }
       ]
     }

@@ -1,0 +1,19 @@
+{
+  "generated_at": "2026-07-11T09:15:38+00:00",
+  "document_id": "f213e5532ab54ed387dddb0250713ce1",
+  "document_title": "摩托车发动机维修手册",
+  "index": {
+    "document_id": "f213e5532ab54ed387dddb0250713ce1",
+    "status": "ready",
+    "embedding_backend": "local_hash",
+    "embedding_model": "local-char-ngram-v1",
+    "dimension": 384,
+    "indexed_chunk_count": 64
+  },
+  "question_count": 26,
+  "metrics": {
+    "hit_at_1": 0.9230769230769231,
+    "hit_at_3": 1.0,
+    "hit_at_5": 1.0
+  }
+}

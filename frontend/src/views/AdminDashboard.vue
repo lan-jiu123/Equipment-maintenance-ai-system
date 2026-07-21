@@ -30,32 +30,32 @@
 
     <!-- 核心统计卡 -->
     <section class="stats-grid">
-      <div class="stat-card card">
-        <div class="stat-icon blue">📋</div>
+      <div class="stat-card card" data-cat="total">
+        <div class="stat-icon">📋</div>
         <div class="stat-info">
           <div class="stat-value">{{ totalOrders }}</div>
           <div class="stat-label">本月工单总数</div>
           <div class="stat-trend up">↑ 实时</div>
         </div>
       </div>
-      <div class="stat-card card">
-        <div class="stat-icon orange">⏳</div>
+      <div class="stat-card card" :class="{ 'is-alert': pendingCount > 0 }" data-cat="pending">
+        <div class="stat-icon">⏳</div>
         <div class="stat-info">
           <div class="stat-value">{{ pendingCount }}</div>
           <div class="stat-label">待派单</div>
           <div class="stat-trend down">需尽快处理</div>
         </div>
       </div>
-      <div class="stat-card card">
-        <div class="stat-icon green">✅</div>
+      <div class="stat-card card" data-cat="done">
+        <div class="stat-icon">✅</div>
         <div class="stat-info">
           <div class="stat-value">{{ doneCount }}</div>
           <div class="stat-label">本月已完成</div>
           <div class="stat-trend up">累计进度</div>
         </div>
       </div>
-      <div class="stat-card card">
-        <div class="stat-icon purple">🧑‍🔧</div>
+      <div class="stat-card card" data-cat="team">
+        <div class="stat-icon">🧑‍🔧</div>
         <div class="stat-info">
           <div class="stat-value">{{ totalWorkers }}</div>
           <div class="stat-label">在岗维修工</div>
@@ -66,38 +66,48 @@
 
     <!-- 快捷操作 -->
     <section class="quick-section">
-      <h2 class="section-title">管理入口</h2>
+      <h2 class="section-title">快捷操作</h2>
       <div class="quick-grid">
-        <button class="quick-card card" @click="openDispatch()">
+        <button class="quick-card card" data-color="primary" @click="openDispatch()">
           <span class="quick-icon">📤</span>
-          <span class="quick-label">新建 / 派单</span>
-          <span class="quick-desc">创建工单并指派给合适的维修工</span>
-          <span class="quick-cta">立即派单 →</span>
+          <span class="quick-body">
+            <span class="quick-row">
+              <span class="quick-label">新建 / 派单</span>
+              <span class="quick-cta">立即派单 →</span>
+            </span>
+            <span class="quick-desc">创建工单并指派给合适的维修工</span>
+          </span>
         </button>
-        <router-link to="/users" class="quick-card card">
+        <router-link to="/users" class="quick-card card" data-color="green">
           <span class="quick-icon">👥</span>
-          <span class="quick-label">人员管理</span>
-          <span class="quick-desc">维修工排班、技能标签、绩效统计</span>
-          <span class="quick-cta">查看团队 →</span>
+          <span class="quick-body">
+            <span class="quick-row">
+              <span class="quick-label">人员管理</span>
+              <span class="quick-cta">查看团队 →</span>
+            </span>
+            <span class="quick-desc">维修工排班、技能标签、绩效统计</span>
+          </span>
         </router-link>
-        <button class="quick-card card kr-quick" @click="goToReviewPending">
+        <button class="quick-card card kr-quick" data-color="cyan" @click="goToReviewPending">
           <span class="quick-icon">📝</span>
-          <span class="quick-label">知识报告审核</span>
-          <span class="quick-desc">审核员工提交的实践方案，入库知识库</span>
-          <span class="quick-cta">进入审核 →</span>
+          <span class="quick-body">
+            <span class="quick-row">
+              <span class="quick-label">知识报告审核</span>
+              <span class="quick-cta">进入审核 →</span>
+            </span>
+            <span class="quick-desc">审核员工提交的实践方案，入库知识库</span>
+          </span>
         </button>
-        <router-link to="/search" class="quick-card card">
+        <router-link to="/search" class="quick-card card" data-color="violet">
           <span class="quick-icon">◎</span>
-          <span class="quick-label">AI 辅助诊断</span>
-          <span class="quick-desc">把棘手故障扔给 AI 获取结构化方案</span>
-          <span class="quick-cta">开始检索 →</span>
+          <span class="quick-body">
+            <span class="quick-row">
+              <span class="quick-label">AI 辅助诊断</span>
+              <span class="quick-cta">开始检索 →</span>
+            </span>
+            <span class="quick-desc">把棘手故障扔给 AI 获取结构化方案</span>
+          </span>
         </router-link>
-        <button class="quick-card card" @click="openReport">
-          <span class="quick-icon">📊</span>
-          <span class="quick-label">运维报表</span>
-          <span class="quick-desc">月度完成率、SLA、MTTR 多维分析</span>
-          <span class="quick-cta">生成报告 →</span>
-        </button>
       </div>
     </section>
 
@@ -118,145 +128,124 @@
       </div>
     </section>
 
-    <!-- 工单列表 + 团队负载 -->
-    <section class="main-grid" v-if="activeMainTab === 'order'">
-      <!-- 全部工单列表 -->
-      <div class="order-section card">
-        <div class="section-header">
-          <h2 class="section-title">
-            <span class="title-icon">📋</span>
-            全部工单
-          </h2>
-          <div class="section-actions">
-            <button
-              v-for="t in orderTabs"
-              :key="t.key"
-              class="pill-btn"
-              :class="{ active: activeOrderTab === t.key }"
-              @click="activeOrderTab = t.key"
-              type="button"
-            >{{ t.label }}<span class="pill-num">{{ t.count }}</span></button>
-          </div>
-        </div>
-        <div class="order-table">
-          <div class="order-head order-row">
-            <div class="col-id">工单号</div>
-            <div class="col-title">标题 / 设备</div>
-            <div class="col-pri">优先级</div>
-            <div class="col-worker">处理人</div>
-            <div class="col-status">状态</div>
-            <div class="col-time">创建</div>
-            <div class="col-action">操作</div>
-          </div>
-          <div v-if="ticketsLoading" class="order-empty">
-            <div class="skeleton-wrap" style="padding:12px 8px;display:flex;flex-direction:column;gap:14px;">
-              <div v-for="i in 5" :key="i" class="sk-todo" style="display:grid;grid-template-columns:140px 2fr 80px 120px 90px 100px 140px;gap:12px;">
-                <span v-for="j in 7" :key="j" style="display:block;height:14px;border-radius:6px;background:linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(148,163,184,0.08) 50%, rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></span>
-              </div>
-            </div>
-          </div>
-          <template v-else>
-            <div v-for="o in filteredOrders" :key="o.id" class="order-row">
-              <div class="col-id mono">{{ o.code }}</div>
-              <div class="col-title">
-                <div class="order-title">{{ o.title }}</div>
-                <div class="order-device">◈ {{ o.device_name || '未关联设备' }}</div>
-              </div>
-              <div class="col-pri">
-                <span class="pri-chip" :class="'pri-' + o._priorityKey">{{ priorityText(o._priorityKey) }}</span>
-              </div>
-              <div class="col-worker">
-                <div class="worker-assign">
-                  <span class="worker-avatar">{{ (o.assignee_name || '—').charAt(0) }}</span>
-                  <span class="worker-name">{{ o.assignee_name || '待分配' }}</span>
-                </div>
-              </div>
-              <div class="col-status">
-                <span class="status-chip" :class="'st-' + o._statusKey">{{ statusText(o._statusKey) }}</span>
-              </div>
-              <div class="col-time mono" :class="{ overtime: o._isOvertime }">{{ o.createdText }}</div>
-              <div class="col-action">
-                <button class="row-btn primary" :disabled="o._op" @click="handleOrder(o)">
-                  {{ o.status === 'pending' ? '派单' : (o._op ? '处理中…' : '处置') }}
-                </button>
-                <button class="row-btn" @click="previewOrder(o)">详情</button>
-              </div>
-            </div>
-            <div v-if="filteredOrders.length === 0" class="order-empty">当前筛选下无工单 🎉</div>
-          </template>
+    <!-- 工单列表（全宽）-->
+    <section class="order-section card" v-if="activeMainTab === 'order'">
+      <div class="section-header">
+        <h2 class="section-title">
+          <span class="title-icon">📋</span>
+          全部工单
+        </h2>
+        <div class="section-actions">
+          <button
+            v-for="t in orderTabs"
+            :key="t.key"
+            class="pill-btn"
+            :class="{ active: activeOrderTab === t.key }"
+            @click="activeOrderTab = t.key"
+            type="button"
+          >{{ t.label }}<span class="pill-num">{{ t.count }}</span></button>
         </div>
       </div>
-
-      <!-- 团队负载 -->
-      <div class="team-section card">
-        <div class="section-header">
-          <h2 class="section-title"><span class="title-icon">👥</span>维修工负载</h2>
-          <button class="more-link" style="border:none;background:transparent;cursor:pointer;" @click="loadAllUsers(true)">刷新 ↻</button>
+      <div class="order-table">
+        <div class="order-head order-row">
+          <div class="col-id">工单号</div>
+          <div class="col-title">标题 / 设备</div>
+          <div class="col-pri">优先级</div>
+          <div class="col-worker">处理人</div>
+          <div class="col-status">状态</div>
+          <div class="col-time">创建</div>
+          <div class="col-action">操作</div>
         </div>
-        <div class="team-list">
-          <div v-if="usersLoading" class="todo-empty">
-            <div class="skeleton-wrap" style="padding:4px 0;display:flex;flex-direction:column;gap:18px;">
-              <div v-for="i in 5" :key="i" style="display:grid;grid-template-columns:40px 1fr 160px;gap:14px;align-items:center;">
-                <span style="display:block;height:40px;width:40px;border-radius:50%;background:linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(148,163,184,0.08) 50%, rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></span>
-                <span style="display:block;height:14px;border-radius:6px;background:linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(148,163,184,0.08) 50%, rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></span>
-                <span style="display:block;height:32px;border-radius:6px;background:linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(148,163,184,0.08) 50%, rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></span>
+        <div v-if="ticketsLoading" class="order-empty">
+          <div class="skeleton-wrap" style="padding:12px 8px;display:flex;flex-direction:column;gap:14px;">
+            <div v-for="i in 5" :key="i" class="sk-todo" style="display:grid;grid-template-columns:140px 2fr 80px 120px 90px 100px 140px;gap:12px;">
+              <span v-for="j in 7" :key="j" style="display:block;height:14px;border-radius:6px;background:linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(148,163,184,0.08) 50%, rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></span>
+            </div>
+          </div>
+        </div>
+        <template v-else>
+          <div v-for="o in filteredOrders" :key="o.id" class="order-row">
+            <div class="col-id mono">{{ o.code }}</div>
+            <div class="col-title">
+              <div class="order-title">{{ o.title }}</div>
+              <div class="order-device">◈ {{ o.device_name || '未关联设备' }}</div>
+            </div>
+            <div class="col-pri">
+              <span class="pri-chip" :class="'pri-' + o._priorityKey">{{ priorityText(o._priorityKey) }}</span>
+            </div>
+            <div class="col-worker">
+              <div class="worker-assign">
+                <span class="worker-avatar">{{ (o.assignee_name || '—').charAt(0) }}</span>
+                <span class="worker-name">{{ o.assignee_name || '待分配' }}</span>
+              </div>
+            </div>
+            <div class="col-status">
+              <span class="status-chip" :class="'st-' + o._statusKey">{{ statusText(o._statusKey) }}</span>
+            </div>
+            <div class="col-time mono" :class="{ overtime: o._isOvertime }">{{ o.createdText }}</div>
+            <div class="col-action">
+              <button class="row-btn primary" :disabled="o._op" @click="handleOrder(o)">
+                {{ o.status === 'pending' ? '派单' : (o._op ? '处理中…' : '处置') }}
+              </button>
+              <button class="row-btn" @click="previewOrder(o)">详情</button>
+              <button class="row-btn danger" @click="deleteOrder(o)">删除</button>
+            </div>
+          </div>
+          <div v-if="filteredOrders.length === 0" class="order-empty">当前筛选下无工单 🎉</div>
+        </template>
+      </div>
+    </section>
+
+    <!-- 团队负载（全宽）-->
+    <section class="team-section card" v-if="activeMainTab === 'team'">
+      <div class="section-header">
+        <h2 class="section-title"><span class="title-icon">👥</span>维修工负载</h2>
+        <button class="more-link" style="border:none;background:transparent;cursor:pointer;" @click="loadAllUsers(true)">刷新 ↻</button>
+      </div>
+      <div class="team-list">
+        <div v-if="usersLoading" class="todo-empty">
+          <div class="skeleton-wrap" style="padding:4px 0;display:flex;flex-direction:column;gap:18px;">
+            <div v-for="i in 5" :key="i" style="display:grid;grid-template-columns:40px 1fr 160px;gap:14px;align-items:center;">
+              <span style="display:block;height:40px;width:40px;border-radius:50%;background:linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(148,163,184,0.08) 50%, rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></span>
+              <span style="display:block;height:14px;border-radius:6px;background:linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(148,163,184,0.08) 50%, rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></span>
+              <span style="display:block;height:32px;border-radius:6px;background:linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(148,163,184,0.08) 50%, rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></span>
+            </div>
+          </div>
+        </div>
+        <template v-else>
+          <div v-for="w in workers" :key="w.id" class="team-item">
+            <div class="team-left">
+              <div class="team-avatar" :class="'av-' + (w._colorIdx % 6 + 1)">{{ (w.fullname || w.username || 'U').charAt(0) }}</div>
+              <div class="team-meta">
+                <div class="team-name">{{ w.fullname || w.username }}</div>
+                <div class="team-skills">
+                  <span v-if="w._roleLabel" class="skill-tag">{{ w._roleLabel }}</span>
+                  <span class="skill-tag">工号 {{ w.id }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="team-load">
+              <div class="load-top">
+                <span>总工单 <b>{{ w._total || 0 }}</b></span>
+                <span class="mono">{{ w._load }}%</span>
+              </div>
+              <div class="load-track">
+                <div class="load-fill" :class="loadClass(w._load)" :style="{ width: w._load + '%' }"></div>
+              </div>
+              <div class="load-detail">
+                <span class="ld-pending">待处理 {{ w._pending || 0 }}</span>
+                <span class="ld-ongoing">进行中 {{ w._ongoing || 0 }}</span>
+                <span class="ld-done">已完成 {{ w._done || 0 }}</span>
               </div>
             </div>
           </div>
-          <template v-else>
-            <div v-for="w in workers" :key="w.id" class="team-item">
-              <div class="team-left">
-                <div class="team-avatar" :class="'av-' + (w._colorIdx % 6 + 1)">{{ (w.fullname || w.username || 'U').charAt(0) }}</div>
-                <div class="team-meta">
-                  <div class="team-name">{{ w.fullname || w.username }}</div>
-                  <div class="team-skills">
-                    <span v-if="w._roleLabel" class="skill-tag">{{ w._roleLabel }}</span>
-                    <span class="skill-tag">工号 {{ w.id }}</span>
-                  </div>
-                </div>
-              </div>
-              <div class="team-load">
-                <div class="load-top">
-                  <span>进行中 <b>{{ w._ongoing || 0 }}</b></span>
-                  <span class="mono">{{ w._load }}%</span>
-                </div>
-                <div class="load-track">
-                  <div class="load-fill" :class="loadClass(w._load)" :style="{ width: w._load + '%' }"></div>
-                </div>
-              </div>
-            </div>
-            <div v-if="workers.length === 0" class="order-empty">暂无团队成员数据</div>
-          </template>
-        </div>
+          <div v-if="workers.length === 0" class="order-empty">暂无团队成员数据</div>
+        </template>
       </div>
     </section>
 
     <!-- 知识报告审核面板 -->
     <section class="knowledge-panel" v-if="activeMainTab === 'knowledge'">
-      <!-- 顶部统计卡（移除待审卡片，待审数量已通过消息通知承载） -->
-      <div class="kr-top-grid">
-        <div class="kr-top-card card top-approved">
-          <div class="kt-num">{{ krStats.approved }}</div>
-          <div class="kt-label">已通过</div>
-          <div class="kt-foot">管理员审核通过</div>
-        </div>
-        <div class="kr-top-card card top-synced">
-          <div class="kt-num">{{ krStats.synced }}</div>
-          <div class="kt-label">已入库</div>
-          <div class="kt-foot">案例库 / 作业指导</div>
-        </div>
-        <div class="kr-top-card card top-rejected">
-          <div class="kt-num">{{ krStats.rejected }}</div>
-          <div class="kt-label">已驳回</div>
-          <div class="kt-foot">附原因反馈提交人</div>
-        </div>
-        <div class="kr-top-card card top-total">
-          <div class="kt-num">{{ krStats.total }}</div>
-          <div class="kt-label">累计提交</div>
-          <div class="kt-foot">全员工共贡献</div>
-        </div>
-      </div>
-
       <div class="knowledge-layout">
         <!-- 报告列表 -->
         <div class="kr-list card">
@@ -356,14 +345,24 @@
             <textarea v-model="dispatchForm.problem" class="input" rows="3" placeholder="描述故障现象、检测到的参数、初步判断..."></textarea>
           </div>
 
-          <div class="kr-row">
-            <label class="kr-label required">指派维修工</label>
-            <select v-model="dispatchForm.assignee_id" class="input" style="cursor:pointer;">
-              <option :value="''" disabled>请选择维修工...</option>
-              <option v-for="u in workers" :key="u.id" :value="String(u.id)">
-                {{ u.fullname || u.username }}（进行中 {{ u._ongoing || 0 }} · 负载 {{ u._load }}%）
-              </option>
-            </select>
+          <div class="kr-row kr-double">
+            <div>
+              <label class="kr-label required">指派维修工</label>
+              <select v-model="dispatchForm.assignee_id" class="input" style="cursor:pointer;">
+                <option :value="''" disabled>请选择维修工...</option>
+                <option v-for="u in workers" :key="u.id" :value="String(u.id)">
+                  {{ u.fullname || u.username }}（进行中 {{ u._ongoing || 0 }} · 负载 {{ u._load }}%）
+                </option>
+              </select>
+            </div>
+            <div>
+              <label class="kr-label">优先级</label>
+              <select v-model="dispatchForm.level" class="input" style="cursor:pointer;">
+                <option value="low">低</option>
+                <option value="mid">中</option>
+                <option value="high">高（加急）</option>
+              </select>
+            </div>
           </div>
 
           <div class="kr-row">
@@ -432,26 +431,20 @@
             <div class="kr-field-label">解决方案</div>
             <div class="kr-field-value kr-text solution">{{ previewTicket.solution }}</div>
           </div>
+          <div class="kr-field" v-if="previewTicket._attachments && previewTicket._attachments.length">
+            <div class="kr-field-label">附件（{{ previewTicket._attachments.length }}）</div>
+            <div class="attach-list">
+              <div v-for="att in previewTicket._attachments" :key="att.id" class="attach-item">
+                <span class="attach-name">{{ att.filename }}</span>
+                <a class="attach-view" :href="`/api/attachments/${att.id}`" target="_blank">查看</a>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- 占位弹窗（演示用） -->
-    <div v-if="modalOpen" class="modal-mask" @click="modalOpen = false">
-      <div class="modal-card card" @click.stop>
-        <div class="modal-head">
-          <h3>{{ modalTitle }}</h3>
-          <button class="modal-close" @click="modalOpen = false" type="button">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="placeholder-box">
-            <div class="placeholder-icon">🚧</div>
-            <div class="placeholder-title">功能开发中</div>
-            <div class="placeholder-desc">这是「{{ modalTitle }}」的占位页面，可在后续版本中扩展。</div>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- 报告审核弹窗（独立 Modal） -->
     <div v-if="selectedReport" class="modal-mask" @click.self="selectedReport = null">
@@ -622,14 +615,14 @@
 <script>
 import { getUser } from '../utils/auth'
 import {
-  listTicketsApi, assignTicketApi, createTicketApi,
+  listTicketsApi, assignTicketApi, createTicketApi, deleteTicketApi,
   listReportsApi, reviewReportApi,
   listUsersApi, userOptionsApi
 } from '../utils/api'
 import { toast as _toast } from '../utils/request'
 
 const ROLE_LABEL = { worker: '一线检修员', manager: '维修管理员', sysadmin: '系统管理员' }
-const LEVEL_ORDER = { high: 0, mid: 1, low: 2 }
+const LEVEL_ORDER = { critical: 0, high: 0, mid: 1, low: 2 }
 
 function _fmtTsToText(ts) {
   if (!ts) return '-'
@@ -655,9 +648,12 @@ function _isOvertimeTicket(t) {
 }
 
 function _mapTicket(t) {
-  const level = (t.level || 'mid').toLowerCase()
+  let level = (t.level || 'mid').toLowerCase()
+  if (level === 'critical') level = 'high'
   const status = (t.status || 'pending').toLowerCase()
-  const statusKey = (status === 'doing') ? 'ongoing' : (status === 'over') ? 'overdue' : status
+  let statusKey = status
+  if (status === 'doing' || status === 'over') statusKey = 'ongoing'
+  if (status === 'completed') statusKey = 'done'
   return {
     id: t.id,
     code: t.code || ('TK-' + t.id),
@@ -666,7 +662,7 @@ function _mapTicket(t) {
     level: level,
     level_label: t.level_label || '',
     _levelKey: level,
-    _priorityKey: (level === 'critical') ? 'high' : level,
+    _priorityKey: level,
     status: status,
     status_label: t.status_label || '',
     _statusKey: statusKey,
@@ -711,6 +707,8 @@ function _mapUser(u, allTickets) {
   const uid = Number(u.id)
   const doing = allTickets.filter(t => Number(t.assignee_id) === uid && t._statusKey === 'ongoing').length
   const done = allTickets.filter(t => Number(t.assignee_id) === uid && t._statusKey === 'done').length
+  const pending = allTickets.filter(t => Number(t.assignee_id) === uid && t._statusKey === 'pending').length
+  const total = pending + doing + done
   const load = Math.min(100, Math.round((doing / 3) * 100))
   return {
     id: uid,
@@ -719,8 +717,10 @@ function _mapUser(u, allTickets) {
     role: u.role,
     _roleLabel: u.role_label || ROLE_LABEL[u.role] || u.role,
     _colorIdx: (uid - 1) % 6,
+    _pending: pending,
     _ongoing: doing,
     _done: done,
+    _total: total,
     _load: load
   }
 }
@@ -750,8 +750,6 @@ export default {
       dispatchErr: '',
       previewOpen: false,
       previewTicket: null,
-      modalOpen: false,
-      modalTitle: '',
       activeKrTab: 'pending',
       selectedReport: null,
       reviewForm: { type: 'case', remark: '', action: '' },
@@ -784,7 +782,7 @@ export default {
     },
     highPriority() {
       return this.allTickets.filter(t =>
-        (t._statusKey === 'pending' || t._statusKey === 'ongoing') &&
+        (t._statusKey === 'pending') &&
         (t._priorityKey === 'high')
       ).length
     },
@@ -805,12 +803,8 @@ export default {
       const tab = this.activeOrderTab
       let arr = this.allTickets.slice()
       if (tab !== 'all') arr = arr.filter(t => t._statusKey === tab)
-      arr.sort((a, b) => {
-        const pa = LEVEL_ORDER[a._priorityKey] ?? 9
-        const pb = LEVEL_ORDER[b._priorityKey] ?? 9
-        if (pa !== pb) return pa - pb
-        return (b.submit_time_ts || 0) - (a.submit_time_ts || 0)
-      })
+      // 按创建时间倒序排列（最新在前）
+      arr.sort((a, b) => (b.submit_time_ts || 0) - (a.submit_time_ts || 0))
       return arr.map(t => {
         if (!t._isOvertime) t._isOvertime = _isOvertimeTicket(t)
         return t
@@ -851,7 +845,8 @@ export default {
     },
     mainTabs() {
       return [
-        { key: 'order', label: '工单与团队', icon: '📋', count: 0, badgeCls: '' },
+        { key: 'order', label: '工单列表', icon: '📋', count: this.totalOrders, badgeCls: '' },
+        { key: 'team', label: '团队负载', icon: '👥', count: 0, badgeCls: '' },
         { key: 'knowledge', label: '知识报告审核', icon: '📝', count: this.pendingReports, badgeCls: 'orange' }
       ]
     },
@@ -1070,7 +1065,7 @@ export default {
       this.currentDate = now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
     },
     priorityText(p) {
-      return ({ high: '高', mid: '中', low: '低' })[p] || '中'
+      return ({ critical: '高', high: '高', mid: '中', low: '低' })[p] || '中'
     },
     statusText(s) {
       return ({ pending: '待派单', ongoing: '进行中', done: '已完成', overdue: '超时' })[s] || s
@@ -1131,7 +1126,7 @@ export default {
           const tid = this.dispatchTicket && this.dispatchTicket.id
           const saved = this._optimisticTicketPatch(tid, { _op: 'assign' })
           try {
-            await assignTicketApi(tid, Number(f.assignee_id), f.remark || '')
+            await assignTicketApi(tid, Number(f.assignee_id), f.remark || '', f.level)
             this._optimisticTicketPatch(tid, {
               status: 'doing',
               _statusKey: 'ongoing',
@@ -1156,9 +1151,24 @@ export default {
         this.dispatchSubmitting = false
       }
     },
-    previewOrder(o) {
+    async previewOrder(o) {
       this.previewTicket = o
       this.previewOpen = true
+      try {
+        const res = await listAttachmentsApi(o.id)
+        this.$set(this.previewTicket, '_attachments', res || [])
+      } catch (e) {
+        this.$set(this.previewTicket, '_attachments', [])
+      }
+    },
+    async deleteOrder(o) {
+      if (!confirm(`确定删除工单「${o.code}」？此操作不可恢复。`)) return
+      try {
+        await deleteTicketApi(o.id)
+        this.loadAllTickets(true)
+      } catch (e) {
+        alert('删除失败：' + (e.message || '请重试'))
+      }
     },
     goToReviewPending() {
       this.activeMainTab = 'knowledge'
@@ -1170,20 +1180,19 @@ export default {
         }
       } catch (_) {}
     },
-    openReport() { this.modalTitle = '运维月度报表'; this.modalOpen = true }
   }
 }
 </script>
 
 <style scoped>
 @keyframes skeleton-shine { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-.container { max-width: var(--max-width); margin: 0 auto; padding: 28px 28px 64px; }
+.container { max-width: var(--max-width); margin: 0 auto; padding: 16px 28px 64px; }
 
 .hero {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 32px 0 28px;
+  padding: 16px 0 16px;
   gap: 32px;
 }
 
@@ -1224,47 +1233,115 @@ export default {
 .stats-grid {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px;
 }
-.stat-card { display: flex; align-items: center; gap: 14px; }
+
+/* 统计卡片：左竖条 + 背景晕染 + data-cat 主题色 */
+.stat-card {
+  display: flex; align-items: center; gap: 14px;
+  position: relative; overflow: hidden;
+  padding: 18px 20px;
+}
+.stat-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 4px; border-radius: 0 4px 4px 0;
+}
+.stat-card::after {
+  content: ''; position: absolute; right: -30px; bottom: -30px;
+  width: 100px; height: 100px; border-radius: 50%;
+  opacity: 0.08; pointer-events: none;
+}
+.stat-card[data-cat="total"]::before,
+.stat-card[data-cat="total"]::after   { background: var(--primary); }
+.stat-card[data-cat="pending"]::before,
+.stat-card[data-cat="pending"]::after { background: var(--accent-orange); }
+.stat-card[data-cat="done"]::before,
+.stat-card[data-cat="done"]::after   { background: var(--accent-green); }
+.stat-card[data-cat="team"]::before,
+.stat-card[data-cat="team"]::after   { background: var(--accent-cyan); }
+
 .stat-icon {
   width: 52px; height: 52px; border-radius: var(--radius-lg);
-  display: flex; align-items: center; justify-content: center; font-size: 1.375rem; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.375rem; flex-shrink: 0; position: relative; z-index: 1;
 }
-.stat-icon.blue   { color: var(--primary);       background: var(--primary-subtle);       border: 1px solid var(--border-active); }
-.stat-icon.green  { color: var(--accent-green);   background: rgba(16,185,129,0.1);         border: 1px solid rgba(16,185,129,0.18); }
-.stat-icon.orange { color: var(--accent-orange);  background: rgba(245,158,11,0.1);         border: 1px solid rgba(245,158,11,0.18); }
-.stat-icon.purple { color: var(--accent-cyan);    background: rgba(6,182,212,0.1);          border: 1px solid rgba(6,182,212,0.18); }
+.stat-card[data-cat="total"] .stat-icon   { color: var(--primary);       background: var(--primary-subtle);              border: 1px solid var(--border-active); }
+.stat-card[data-cat="pending"] .stat-icon { color: var(--accent-orange); background: rgba(245,158,11,0.10);               border: 1px solid rgba(245,158,11,0.18); }
+.stat-card[data-cat="done"] .stat-icon    { color: var(--accent-green);  background: rgba(16,185,129,0.10);               border: 1px solid rgba(16,185,129,0.18); }
+.stat-card[data-cat="team"] .stat-icon    { color: var(--accent-cyan);   background: rgba(6,182,212,0.10);                border: 1px solid rgba(6,182,212,0.18); }
 
-.stat-info { flex: 1; }
+.stat-info { flex: 1; min-width: 0; }
 .stat-value { font-size: 1.625rem; font-weight: 700; font-family: 'Orbitron', sans-serif; line-height: 1.1; }
 .stat-label { font-size: 0.8125rem; color: var(--text-secondary); margin-top: 4px; }
 .stat-trend { font-size: 0.6875rem; font-family: 'JetBrains Mono', monospace; margin-top: 6px; }
 .stat-trend.up { color: var(--accent-green); }
 .stat-trend.down { color: var(--accent-orange); }
 
-/* 快捷入口 */
+/* 待派单呼吸红光（仅 pendingCount > 0 时渲染 .is-alert）*/
+.stat-card.is-alert {
+  animation: alertBreathe 2s ease-in-out infinite;
+}
+.stat-card.is-alert::before {
+  animation: alertBar 2s ease-in-out infinite;
+}
+.stat-card.is-alert .stat-icon {
+  animation: alertIcon 2s ease-in-out infinite;
+}
+@keyframes alertBreathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50%      { box-shadow: 0 0 22px 4px rgba(245, 158, 11, 0.40); }
+}
+@keyframes alertBar {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+@keyframes alertIcon {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50%      { box-shadow: 0 0 16px 3px rgba(245, 158, 11, 0.55); }
+}
+
+/* 快捷入口（水平横卡）*/
 .quick-section { margin-bottom: 28px; }
 .section-title {
   font-size: 1rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;
   font-weight: 600; margin: 0 0 16px; display: flex; align-items: center; gap: 8px;
 }
 .title-icon { filter: drop-shadow(0 0 4px var(--primary-glow)); }
-.quick-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+.quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .quick-card {
-  display: flex; flex-direction: column; gap: 8px; text-decoration: none; color: inherit;
-  padding: 22px 20px; cursor: pointer; text-align: left; font-family: inherit; border: 1px solid var(--border-subtle);
-  transition: all var(--duration) var(--ease); border-radius: var(--radius-lg); background: var(--bg-card, rgba(255,255,255,0.02));
+  display: flex; flex-direction: row; align-items: center; gap: 12px;
+  text-decoration: none; color: inherit;
+  padding: 14px 16px; cursor: pointer; text-align: left; font-family: inherit;
+  border: 1px solid var(--border-subtle);
+  transition: all var(--duration) var(--ease); border-radius: var(--radius-lg);
+  background: var(--bg-card, rgba(255,255,255,0.02));
 }
 .quick-card:hover {
-  transform: translateY(-2px); border-color: var(--primary-dim);
+  transform: translateY(-2px); border-color: var(--border-active);
   box-shadow: 0 8px 24px rgba(0, 212, 255, 0.1);
 }
-.quick-icon { font-size: 1.75rem; color: var(--primary); margin-bottom: 4px; }
-.quick-label { font-size: 0.9375rem; font-weight: 600; }
-.quick-desc { font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.5; flex: 1; }
-.quick-cta { font-size: 0.75rem; color: var(--primary); font-weight: 500; margin-top: 6px; }
+.quick-icon {
+  width: 48px; height: 48px; border-radius: var(--radius);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.5rem; flex-shrink: 0;
+}
+/* data-color 主题色 */
+.quick-card[data-color="primary"] .quick-icon { color: var(--primary);       background: var(--primary-subtle);              border: 1px solid var(--border-active); }
+.quick-card[data-color="green"]   .quick-icon { color: var(--accent-green);  background: rgba(16,185,129,0.10);               border: 1px solid rgba(16,185,129,0.18); }
+.quick-card[data-color="cyan"]    .quick-icon { color: var(--accent-cyan);   background: rgba(6,182,212,0.10);                border: 1px solid rgba(6,182,212,0.18); }
+.quick-card[data-color="violet"]  .quick-icon { color: #a78bfa;              background: rgba(167,139,250,0.12);               border: 1px solid rgba(167,139,250,0.20); }
+.quick-card[data-color="orange"]  .quick-icon { color: var(--accent-orange); background: rgba(245,158,11,0.10);               border: 1px solid rgba(245,158,11,0.18); }
+.quick-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.quick-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.quick-label { font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); }
+.quick-desc {
+  font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.quick-cta { font-size: 0.75rem; color: var(--text-secondary); font-weight: 500; flex-shrink: 0; }
+.quick-card:hover .quick-cta { color: var(--primary); }
 
-/* 主体网格 */
-.main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+/* 工单区域 / 团队区域：全宽单栏 */
+.order-section,
+.team-section { padding: 22px 20px; }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
 .section-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .pill-btn {
@@ -1283,7 +1360,8 @@ export default {
 }
 .pill-btn.active .pill-num { background: rgba(0, 212, 255, 0.2); color: var(--primary); }
 
-.order-section, .team-section { padding: 22px 20px; }
+.order-section { padding: 22px 20px; }
+.team-section { padding: 22px 20px; }
 
 /* 工单表格 */
 .order-table { display: flex; flex-direction: column; }
@@ -1299,6 +1377,7 @@ export default {
 .order-head {
   font-size: 0.6875rem; color: var(--text-muted); text-transform: uppercase;
   letter-spacing: 1px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle);
+  position: sticky; top: 0; background: var(--bg-surface); z-index: 2;
 }
 .order-row:last-child { border-bottom: none; }
 .col-id.mono, .col-time.mono { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--text-secondary); }
@@ -1346,6 +1425,10 @@ export default {
   background: var(--primary-subtle); color: var(--primary); border-color: var(--border-active);
 }
 .row-btn.primary:hover { background: var(--primary); color: var(--bg-deep); }
+.row-btn.success { background: rgba(16,185,129,0.15); color: var(--accent-green); border-color: rgba(16,185,129,0.3); }
+.row-btn.success:hover { background: var(--accent-green); color: #fff; }
+.row-btn.danger { background: rgba(239,68,68,0.15); color: var(--accent-red); border-color: rgba(239,68,68,0.3); }
+.row-btn.danger:hover { background: var(--accent-red); color: #fff; }
 .order-empty { padding: 32px 0; text-align: center; color: var(--text-muted); font-size: 0.875rem; }
 
 /* 团队负载 */
@@ -1384,6 +1467,11 @@ export default {
 .load-fill.lv-low { background: linear-gradient(90deg, var(--accent-green), #00d084); }
 .load-fill.lv-mid { background: linear-gradient(90deg, var(--accent-amber, #ffa726), var(--accent-orange)); }
 .load-fill.lv-high { background: linear-gradient(90deg, var(--accent-orange), var(--accent-red)); }
+.load-detail { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; font-size: 0.625rem; color: var(--text-muted); }
+.ld-pending { color: var(--accent-orange); }
+.ld-ongoing { color: var(--primary); }
+.ld-done { color: var(--accent-green); }
+.ld-overdue { color: var(--accent-red); font-weight: 600; }
 
 /* Modal */
 .modal-mask {
@@ -1393,7 +1481,8 @@ export default {
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .modal-card {
-  width: 100%; max-width: 560px; padding: 0; overflow: hidden;
+  width: 100%; max-width: 560px; max-height: 90vh; padding: 0; overflow: hidden;
+  display: flex; flex-direction: column;
   animation: popIn 180ms ease;
 }
 @keyframes popIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
@@ -1410,7 +1499,7 @@ export default {
   transition: all var(--duration) var(--ease); font-family: inherit;
 }
 .modal-close:hover { background: rgba(255,255,255,0.05); border-color: var(--border-subtle); color: var(--text-primary); }
-.modal-body { padding: 28px 20px 32px; }
+.modal-body { padding: 28px 20px 32px; overflow-y: auto; flex: 1; min-height: 0; }
 .placeholder-box { text-align: center; }
 .placeholder-icon { font-size: 3rem; margin-bottom: 12px; opacity: 0.8; }
 .placeholder-title { font-size: 1.125rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
@@ -1485,37 +1574,6 @@ export default {
 
 /* === 知识报告审核面板 === */
 .knowledge-panel { display: flex; flex-direction: column; gap: 20px; }
-.kr-top-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 14px;
-}
-.kr-top-card {
-  padding: 18px 16px;
-  text-align: center;
-}
-.kt-num {
-  font-size: 2rem;
-  font-weight: 700;
-  font-family: 'Orbitron', sans-serif;
-  line-height: 1;
-}
-.kt-label {
-  margin-top: 8px;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-.kt-foot {
-  margin-top: 5px;
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-}
-.top-pending .kt-num  { color: #f59e0b; }
-.top-approved .kt-num { color: var(--accent-green); }
-.top-synced .kt-num   { color: #22d3ee; }
-.top-rejected .kt-num { color: var(--accent-red); }
-.top-total .kt-num    { color: var(--primary); }
 
 .knowledge-layout {
   display: grid;
@@ -1933,23 +1991,17 @@ export default {
 
 @media (max-width: 1300px) {
   .quick-grid { grid-template-columns: repeat(3, 1fr); }
-  .kr-top-grid { grid-template-columns: repeat(3, 1fr); }
   .knowledge-layout { grid-template-columns: 1fr; }
 }
-@media (max-width: 1100px) {
+@media (max-width: 800px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .quick-grid { grid-template-columns: repeat(2, 1fr); }
-  .main-grid { grid-template-columns: 1fr; }
   .order-row { grid-template-columns: 110px 2fr 60px 90px 80px 90px; }
   .col-action { grid-column: 1 / -1; justify-content: flex-end; display: flex; }
-  .kr-top-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 600px) {
   .main-tab { flex-direction: column; gap: 4px; padding: 10px; }
   .quick-grid { grid-template-columns: 1fr; }
-  .kr-top-grid { grid-template-columns: repeat(2, 1fr); }
-  .kr-top-card { padding: 14px 10px; }
-  .kt-num { font-size: 1.5rem; }
   .kr-review-actions { flex-direction: column; align-items: stretch; }
   .kr-review-actions .btn { width: 100%; }
   .kr-approve-group { flex-direction: column; }
@@ -1957,13 +2009,6 @@ export default {
 }
 
 /* ===== 报告审核 Modal（启用滑动 + flex 滚动修复） ===== */
-.report-modal-card {
-  max-width: 840px;
-  max-height: 92vh;
-  display: flex;
-  flex-direction: column;
-  min-height: 0; /* flex 根容器：允许子项收缩溢出产生滚动条 */
-}
 .report-modal-head .report-modal-title {
   margin: 0 0 6px 0;
   font-size: 1.05rem;

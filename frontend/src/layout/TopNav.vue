@@ -79,11 +79,18 @@
                     <span>消息通知</span>
                     <span v-if="unreadCount > 0" class="notif-unread-badge">{{ unreadCount }} 条未读</span>
                   </div>
-                  <button
-                    v-if="unreadCount > 0"
-                    class="notif-read-all-btn"
-                    @click="markAllRead"
-                  >全部标为已读</button>
+                  <div class="notif-header-actions">
+                    <button
+                      v-if="unreadCount > 0"
+                      class="notif-read-all-btn"
+                      @click="markAllRead"
+                    >全部标为已读</button>
+                    <button
+                      v-if="notifications.length > 0"
+                      class="notif-delete-all-btn"
+                      @click="deleteAll"
+                    >清空全部</button>
+                  </div>
                 </div>
                 <div class="notif-divider"></div>
                 <div v-if="!notifications.length" class="notif-empty">
@@ -96,12 +103,11 @@
                     :key="n.id"
                     class="notif-item"
                     :class="{ unread: !n.is_read }"
-                    @click="openNotification(n)"
                   >
                     <div class="notif-icon" :class="'icon-' + n.type">
                       {{ notifIcon(n.type) }}
                     </div>
-                    <div class="notif-body">
+                    <div class="notif-body" @click="openNotification(n)">
                       <div class="notif-head">
                         <span class="notif-item-title">{{ n.title }}</span>
                         <span class="notif-time">{{ n._time }}</span>
@@ -109,6 +115,13 @@
                       <div class="notif-content">{{ n.content }}</div>
                     </div>
                     <span v-if="!n.is_read" class="notif-point"></span>
+                    <button
+                      class="notif-delete-btn"
+                      @click.stop="deleteSingle(n.id)"
+                      :title="`删除这条消息`"
+                    >
+                      ✕
+                    </button>
                   </div>
                 </div>
                 <div class="notif-divider"></div>
@@ -188,6 +201,95 @@
       </div>
     </div>
   </header>
+
+  <transition name="modal-fade">
+    <div v-if="notifDetailOpen" class="notif-detail-mask" @click.self="closeNotifDetail">
+      <div class="notif-detail-card card" @click.stop>
+        <div class="notif-detail-head">
+          <div class="notif-detail-icon" :class="'icon-' + notifDetailData.notification.type">
+            {{ notifIcon(notifDetailData.notification.type) }}
+          </div>
+          <div class="notif-detail-title-wrap">
+            <h3 class="notif-detail-title">{{ notifDetailData.notification.title }}</h3>
+            <div class="notif-detail-time">{{ _fmtNotifTime(notifDetailData.notification.created_at_ts) }}</div>
+          </div>
+          <button class="notif-detail-close" @click="closeNotifDetail">✕</button>
+        </div>
+        <div class="notif-detail-body">
+          <div class="notif-detail-content">
+            {{ notifDetailData.notification.content }}
+          </div>
+          <div v-if="notifDetailData.report" class="notif-detail-report">
+            <h4 class="notif-detail-subtitle">📋 报告详情</h4>
+            <div class="notif-detail-field">
+              <span class="field-label">报告编号</span>
+              <span class="field-value mono">{{ notifDetailData.report.rid }}</span>
+            </div>
+            <div class="notif-detail-field">
+              <span class="field-label">设备</span>
+              <span class="field-value">{{ notifDetailData.report.device || '—' }}</span>
+            </div>
+            <div class="notif-detail-field">
+              <span class="field-label">报告标题</span>
+              <span class="field-value">{{ notifDetailData.report.title }}</span>
+            </div>
+            <div v-if="notifDetailData.report.repair_process" class="notif-detail-field">
+              <span class="field-label">维修过程</span>
+              <div class="field-value text">{{ notifDetailData.report.repair_process }}</div>
+            </div>
+            <div v-if="notifDetailData.report.technical_measures" class="notif-detail-field">
+              <span class="field-label">技术措施</span>
+              <div class="field-value text">{{ notifDetailData.report.technical_measures }}</div>
+            </div>
+            <div v-if="notifDetailData.report.repair_result" class="notif-detail-field">
+              <span class="field-label">维修结果</span>
+              <div class="field-value text">{{ notifDetailData.report.repair_result }}</div>
+            </div>
+            <div v-if="notifDetailData.report.review_remark" class="notif-detail-field">
+              <span class="field-label">审核意见</span>
+              <div class="field-value text" :class="{ reject: notifDetailData.notification.type === 'report_rejected' }">{{ notifDetailData.report.review_remark }}</div>
+            </div>
+            <div class="notif-detail-field">
+              <span class="field-label">审核结果</span>
+              <span class="field-value">
+                <span v-if="notifDetailData.notification.type === 'report_approved'" class="status-chip st-approved">✅ 通过</span>
+                <span v-else-if="notifDetailData.notification.type === 'report_rejected'" class="status-chip st-rejected">❌ 驳回</span>
+                <span v-else-if="notifDetailData.notification.type === 'report_synced'" class="status-chip st-synced">📚 已入库</span>
+                <span v-else>{{ notifDetailData.report.status_label || notifDetailData.report.status }}</span>
+              </span>
+            </div>
+            <div v-if="notifDetailData.report.reviewer_name" class="notif-detail-field">
+              <span class="field-label">审核人</span>
+              <span class="field-value">{{ notifDetailData.report.reviewer_name }}</span>
+            </div>
+          </div>
+          <div v-if="notifDetailData.ticket" class="notif-detail-report">
+            <h4 class="notif-detail-subtitle">🎫 工单详情</h4>
+            <div class="notif-detail-field">
+              <span class="field-label">工单号</span>
+              <span class="field-value mono">{{ notifDetailData.ticket.code }}</span>
+            </div>
+            <div class="notif-detail-field">
+              <span class="field-label">设备</span>
+              <span class="field-value">{{ notifDetailData.ticket.device_name || '—' }}</span>
+            </div>
+            <div class="notif-detail-field">
+              <span class="field-label">工单标题</span>
+              <span class="field-value">{{ notifDetailData.ticket.title }}</span>
+            </div>
+            <div class="notif-detail-field">
+              <span class="field-label">问题描述</span>
+              <div class="field-value text">{{ notifDetailData.ticket.problem }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="notif-detail-foot">
+          <button class="btn btn-outline" @click="closeNotifDetail">关闭</button>
+          <button v-if="notifDetailData.notification && notifDetailData.notification.type !== 'ticket_created' && notifDetailData.notification.type !== 'ticket_assigned'" class="btn btn-primary" @click="jumpToRelated">查看完整详情 →</button>
+        </div>
+      </div>
+    </div>
+  </transition>
 </template>
 
 <script>
@@ -207,7 +309,8 @@ const ROLE_MENUS = {
       children: [
         { path: '/search', label: '智能检索' },
         { path: '/guide', label: '作业指导' },
-        { path: '/case', label: '案例库' }
+        { path: '/case', label: '案例库' },
+        { path: '/graph', label: '知识图谱' }
       ]},
     { key: 'sys', label: '用户管理', icon: '⚙',
       children: [{ path: '/users', label: '用户列表' }] }
@@ -223,7 +326,8 @@ const ROLE_MENUS = {
       children: [
         { path: '/search', label: '智能检索' },
         { path: '/guide', label: '作业指导' },
-        { path: '/case', label: '案例库' }
+        { path: '/case', label: '案例库' },
+        { path: '/graph', label: '知识图谱' }
       ]},
     { key: 'sys', label: '用户管理', icon: '⚙',
       children: [{ path: '/users', label: '用户列表' }] }
@@ -231,14 +335,15 @@ const ROLE_MENUS = {
   worker: [
     { key: 'workbench', label: '工作台', icon: '📊',
       children: [{ path: '/desk', label: '我的工作台' }] },
+    { key: 'tasks', label: '我的工单', icon: '📋',
+      children: [{ path: '/tickets', label: '我的工单' }] },
     { key: 'ai', label: '智能助手', icon: '🧠', accent: 'purple',
       children: [
         { path: '/search', label: '智能检索' },
         { path: '/guide', label: '作业指导' },
+        { path: '/graph', label: '知识图谱' },
         { path: '/case', label: '案例库' }
-      ]},
-    { key: 'tasks', label: '我的工单', icon: '📋',
-      children: [{ path: '/tickets', label: '我的工单' }] }
+      ]}
   ]
 }
 
@@ -258,7 +363,13 @@ export default {
       notifOpen: false,
       notifications: [],
       unreadCount: 0,
-      _notifTimer: null
+      _notifTimer: null,
+      notifDetailOpen: false,
+      notifDetailData: {
+        notification: null,
+        report: null,
+        ticket: null
+      },
     }
   },
   computed: {
@@ -434,24 +545,88 @@ export default {
         toast('操作失败，请稍后再试')
       }
     },
-    openNotification(n) {
+    async deleteSingle(id) {
+      try {
+        await request('/notifications', {
+          method: 'DELETE',
+          data: { ids: [id] },
+          silent: true
+        })
+        const idx = this.notifications.findIndex(n => n.id === id)
+        if (idx > -1) {
+          const wasUnread = !this.notifications[idx].is_read
+          this.notifications.splice(idx, 1)
+          if (wasUnread) this.unreadCount = Math.max(0, this.unreadCount - 1)
+        }
+      } catch (_) {}
+    },
+    async deleteAll() {
+      if (!confirm('确定要删除所有消息吗？')) return
+      try {
+        await request('/notifications', {
+          method: 'DELETE',
+          data: {},
+          silent: true
+        })
+        this.notifications = []
+        this.unreadCount = 0
+        toast('已清空所有消息', 'success')
+      } catch (e) {
+        toast('操作失败，请稍后再试')
+      }
+    },
+    async openNotification(n) {
       if (!n.is_read) this.markRead([n.id])
+      this.notifOpen = false
+      this.notifDetailData = { notification: n, report: null, ticket: null }
       const type = (n.type || '').toString()
       const relatedId = n.related_id
+      if ((type === 'report_submitted' || type.startsWith('report_')) && relatedId) {
+        try {
+          const report = await request(`/reports/${relatedId}`, { silent: true })
+          if (report) this.notifDetailData.report = report
+        } catch (_) {}
+      } else if ((type === 'ticket_created' || type === 'ticket_assigned') && relatedId) {
+        try {
+          const res = await request(`/tickets/${relatedId}`, { silent: true })
+          this.notifDetailData.ticket = (res && res.data) || res
+        } catch (_) {}
+      } else if (type === 'device_fault' && relatedId) {
+        // 跳转到设备管理并自动打开该设备的详情弹窗
+        this.$router.push({ path: '/devices', query: { did: String(relatedId) } })
+        return
+      } else if (type === 'device_fault') {
+        this.go('/devices')
+        return
+      }
+      this.notifDetailOpen = true
+    },
+    closeNotifDetail() {
+      this.notifDetailOpen = false
+      this.notifDetailData = { notification: null, report: null, ticket: null }
+    },
+    jumpToRelated() {
+      const n = this.notifDetailData.notification
+      if (!n) return
+      const type = (n.type || '').toString()
+      const relatedId = n.related_id
+      this.closeNotifDetail()
       if ((type === 'report_submitted' || type.startsWith('report_')) &&
           this.user && this.user.role !== 'worker') {
         const q = { tab: 'knowledge', kr: 'pending' }
         if (relatedId) q.rid = String(relatedId)
         this.$router.push({ path: '/admin', query: q })
-        this.notifOpen = false
         return
       }
       if (type === 'report_approved' || type === 'report_rejected' || type === 'report_synced') {
         this.$router.push({ path: '/desk', query: { tab: 'contrib' } })
-        this.notifOpen = false
         return
       }
-      if (type === 'ticket_assigned') {
+      if (type === 'ticket_assigned' || type === 'ticket_created') {
+        this.go('/tickets')
+        return
+      }
+      if (!relatedId && type.startsWith('ticket_')) {
         this.go('/tickets')
         return
       }
@@ -1059,6 +1234,12 @@ export default {
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
+.notif-header-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
 .notif-read-all-btn {
   padding: 4px 10px;
   border-radius: var(--radius);
@@ -1074,6 +1255,23 @@ export default {
 .notif-read-all-btn:hover {
   background: var(--primary-subtle);
   border-color: var(--border-active);
+}
+
+.notif-delete-all-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--accent-red);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration) var(--ease);
+}
+
+.notif-delete-all-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .notif-divider {
@@ -1181,6 +1379,32 @@ export default {
   box-shadow: 0 0 6px var(--primary-glow);
 }
 
+.notif-delete-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all var(--duration) var(--ease);
+  flex-shrink: 0;
+}
+
+.notif-item:hover .notif-delete-btn {
+  opacity: 1;
+}
+
+.notif-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-red);
+}
+
 .notif-footer {
   padding: 8px 12px;
   background: linear-gradient(90deg, transparent, var(--primary-subtle), transparent);
@@ -1213,5 +1437,223 @@ export default {
   font-weight: 700;
   min-width: 20px;
   text-align: center;
+}
+
+/* ===== 消息详情弹窗 ===== */
+.notif-detail-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(6px);
+}
+
+.notif-detail-card {
+  width: 90%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.notif-detail-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.notif-detail-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.notif-detail-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-detail-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.notif-detail-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.notif-detail-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration) var(--ease);
+  flex-shrink: 0;
+}
+
+.notif-detail-close:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--accent-red);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.notif-detail-body {
+  padding: 16px 20px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.notif-detail-content {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--primary-subtle);
+  border-radius: var(--radius);
+}
+
+.notif-detail-report {
+  background: var(--bg-panel);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.notif-detail-subtitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.notif-detail-field {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.notif-detail-field:last-child {
+  margin-bottom: 0;
+}
+
+.notif-detail-field .field-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  min-width: 70px;
+  flex-shrink: 0;
+  padding-top: 3px;
+}
+
+.notif-detail-field .field-value {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  flex: 1;
+  padding-top: 3px;
+}
+
+.notif-detail-field .field-value.text {
+  padding-top: 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.notif-detail-field .field-value.mono {
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+.notif-detail-field .field-value.reject {
+  color: var(--accent-red);
+}
+
+.notif-detail-foot {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.ticket-review-actions { display: flex; gap: 10px; margin-top: 12px; }
+.btn-success { background: var(--accent-green); color: #052e16; border: none; padding: 6px 16px; border-radius: var(--radius); cursor: pointer; font-weight: 600; font-size: 0.875rem; }
+.btn-success:hover { filter: brightness(1.1); }
+.btn-success:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-danger { background: var(--accent-red); color: #fff; border: none; padding: 6px 16px; border-radius: var(--radius); cursor: pointer; font-weight: 600; font-size: 0.875rem; }
+.btn-danger:hover { filter: brightness(1.1); }
+.btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+.attach-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.attach-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; background: rgba(255,255,255,0.03); border-radius: 4px; }
+.attach-name { font-size: 0.75rem; color: var(--text-secondary); }
+.attach-view { font-size: 0.75rem; color: var(--primary); text-decoration: none; }
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.status-chip.st-approved {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.status-chip.st-rejected {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.status-chip.st-synced {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 200ms var(--ease);
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+.modal-fade-enter-active .notif-detail-card,
+.modal-fade-leave-active .notif-detail-card {
+  transition: transform 200ms var(--ease), opacity 200ms var(--ease);
+}
+
+.modal-fade-enter-from .notif-detail-card,
+.modal-fade-leave-to .notif-detail-card {
+  opacity: 0;
+  transform: scale(0.95) translateY(8px);
 }
 </style>

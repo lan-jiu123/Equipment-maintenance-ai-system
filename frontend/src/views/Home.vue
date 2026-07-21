@@ -22,54 +22,50 @@
         <span class="panel-hint">截至 {{ currentTime }}</span>
       </div>
       <div class="overview-grid">
-        <div class="ov-card card">
+        <div class="ov-card">
           <div class="ov-icon total">⬡</div>
-          <div class="ov-meta">
+          <div class="ov-data">
             <div class="ov-value">{{ overview.total }}</div>
             <div class="ov-label">设备总数</div>
           </div>
-          <div class="ov-foot">全厂在册</div>
         </div>
-        <div class="ov-card card">
-          <div class="ov-icon ok">✓</div>
-          <div class="ov-meta">
-            <div class="ov-value ok-val">{{ overview.ok }}</div>
-            <div class="ov-label">正常运行</div>
-          </div>
-          <div class="ov-foot ok-foot">占比 {{ okPercent }}%</div>
-        </div>
-        <div class="ov-card card">
-          <div class="ov-icon ing">⚙</div>
-          <div class="ov-meta">
-            <div class="ov-value ing-val">{{ overview.repair }}</div>
-            <div class="ov-label">维修中</div>
-          </div>
-          <div class="ov-foot ing-foot">处置中 {{ overview.repair }} 台</div>
-        </div>
-        <div class="ov-card card">
+        <div class="ov-card" :class="{ 'is-alert': overview.down > 0 }">
           <div class="ov-icon bad">✕</div>
-          <div class="ov-meta">
+          <div class="ov-data">
             <div class="ov-value bad-val">{{ overview.down }}</div>
             <div class="ov-label">故障停机</div>
           </div>
-          <div class="ov-foot bad-foot">需优先处置</div>
+        </div>
+        <div class="ov-card">
+          <div class="ov-icon ing">⚙</div>
+          <div class="ov-data">
+            <div class="ov-value ing-val">{{ overview.repair }}</div>
+            <div class="ov-label">维修中</div>
+          </div>
+        </div>
+        <div class="ov-card">
+          <div class="ov-icon ok">✓</div>
+          <div class="ov-data">
+            <div class="ov-value ok-val">{{ overview.ok }}</div>
+            <div class="ov-label">正常运行</div>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- 图表行：饼图 + 折线并排 -->
-    <section class="chart-row">
+    <!-- 图表行：饼图 + 折线并排（flex 布局确保同行） -->
+    <div class="chart-row">
       <!-- 设备状态分布 饼图 -->
-      <div class="panel chart-panel card">
+      <div class="chart-panel">
         <div class="panel-header">
           <h2 class="panel-title">设备状态分布</h2>
-          <span class="panel-hint">{{ overview.total }} 台设备</span>
+          <span class="panel-hint">{{ overview.total }} 台</span>
         </div>
         <div class="pie-wrap">
           <div class="pie" :style="{ background: pieGradient }">
             <div class="pie-hole">
               <div class="pie-total">{{ overview.total }}</div>
-              <div class="pie-sub">设备总数</div>
+              <div class="pie-sub">总数</div>
             </div>
           </div>
           <ul class="pie-legend">
@@ -77,31 +73,37 @@
               <span class="legend-dot" :style="{ background: l.color }"></span>
               <span class="legend-name">{{ l.name }}</span>
               <span class="legend-num">{{ l.value }}</span>
-              <span class="legend-pct">{{ l.pct }}%</span>
             </li>
           </ul>
         </div>
       </div>
 
       <!-- 近期故障趋势 -->
-      <div class="panel chart-panel card">
+      <div class="chart-panel">
         <div class="panel-header">
           <h2 class="panel-title">设备健康趋势</h2>
-          <span class="panel-hint">近 7 天</span>
+          <span class="panel-hint trend-legend">
+            <span class="legend-item" v-if="trendRange === 7"><span class="legend-line this-week"></span>本周</span>
+            <span class="legend-item" v-if="trendRange === 7"><span class="legend-line prev-week"></span>前7天</span>
+            <span class="trend-range">
+              <button :class="{ active: trendRange === 7 }" @click="trendRange = 7">7天</button>
+              <button :class="{ active: trendRange === 30 }" @click="trendRange = 30">前30天</button>
+            </span>
+          </span>
         </div>
         <div class="line-wrap">
           <svg class="line-svg" viewBox="0 0 600 240" preserveAspectRatio="xMidYMid meet">
             <g class="grid">
-              <line x1="40" y1="40"  x2="580" y2="40" />
-              <line x1="40" y1="90"  x2="580" y2="90" />
-              <line x1="40" y1="140" x2="580" y2="140" />
-              <line x1="40" y1="190" x2="580" y2="190" />
+              <line x1="40" y1="35"  x2="580" y2="35" />
+              <line x1="40" y1="80"  x2="580" y2="80" />
+              <line x1="40" y1="125" x2="580" y2="125" />
+              <line x1="40" y1="170" x2="580" y2="170" />
             </g>
             <g class="y-axis">
-              <text x="30"  y="44"  text-anchor="end">15</text>
-              <text x="30"  y="94"  text-anchor="end">10</text>
-              <text x="30"  y="144" text-anchor="end">5</text>
-              <text x="30"  y="194" text-anchor="end">0</text>
+              <text x="30"  y="39"  text-anchor="end">15</text>
+              <text x="30"  y="84"  text-anchor="end">10</text>
+              <text x="30"  y="129" text-anchor="end">5</text>
+              <text x="30"  y="174" text-anchor="end">0</text>
             </g>
             <defs>
               <linearGradient id="lineFill" x1="0" x2="0" y1="0" y2="1">
@@ -112,132 +114,101 @@
                 <stop offset="0%"   stop-color="#2563eb" />
                 <stop offset="100%" stop-color="#06b6d4" />
               </linearGradient>
+              <linearGradient id="lineFillPrev" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%"   stop-color="#f59e0b" stop-opacity="0.18" />
+                <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+              </linearGradient>
+              <linearGradient id="lineStrokePrev" x1="0" x2="1" y1="0" y2="0">
+                <stop offset="0%"   stop-color="#f59e0b" />
+                <stop offset="100%" stop-color="#fb923c" />
+              </linearGradient>
             </defs>
             <path :d="areaPath" fill="url(#lineFill)" />
             <polyline :points="linePoints" fill="none" stroke="url(#lineStroke)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+            <path v-if="trendRange === 7" :d="areaPathPrev" fill="url(#lineFillPrev)" />
+            <polyline v-if="trendRange === 7" :points="linePointsPrev" fill="none" stroke="url(#lineStrokePrev)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4" />
             <g class="data-points">
               <g v-for="(p, i) in dataPoints" :key="i">
                 <circle :cx="p.x" :cy="p.y" r="6" fill="var(--bg-deep)" stroke="url(#lineStroke)" stroke-width="2.5" />
                 <circle :cx="p.x" :cy="p.y" r="2.5" fill="#2563eb" />
-                <text class="p-val" :x="p.x" :y="p.y - 14" text-anchor="middle">{{ p.v }}</text>
+                <text class="p-val" :x="p.x" :y="p.y - 12" text-anchor="middle">{{ p.v }}</text>
+              </g>
+            </g>
+            <g class="data-points-prev" v-if="trendRange === 7">
+              <g v-for="(p, i) in dataPointsPrev" :key="i">
+                <circle :cx="p.x" :cy="p.y" r="6" fill="var(--bg-deep)" stroke="url(#lineStrokePrev)" stroke-width="2.5" />
+                <circle :cx="p.x" :cy="p.y" r="2.5" fill="#f59e0b" />
+                <text class="p-val" :x="p.x" :y="p.y - 12" text-anchor="middle">{{ p.v }}</text>
               </g>
             </g>
             <g class="x-axis">
-              <text v-for="(d, i) in trendData" :key="i" :x="40 + i * 90" y="220" text-anchor="middle">{{ d.label }}</text>
+              <text v-for="(t, i) in xAxisTicks" :key="i" :x="t.x" y="205" text-anchor="middle">{{ t.label }}</text>
             </g>
           </svg>
         </div>
       </div>
-    </section>
-
-    <!-- 更多统计（折叠） -->
-    <div class="more-stats-bar">
-      <button class="link-btn" @click="showMore = !showMore">
-        <span class="link-icon" :class="{ open: showMore }">▸</span>
-        {{ showMore ? '收起统计' : '更多统计' }}
-      </button>
     </div>
 
-    <transition name="fade">
-      <div v-if="showMore" class="more-stats">
-        <!-- 维修任务统计 -->
-        <section class="panel">
-          <div class="panel-header">
-            <h2 class="panel-title">维修任务统计</h2>
-            <span class="panel-hint">本月累计</span>
+    <!-- 综合统计（维修任务 + 知识报告合并为一个卡片，上下布局） -->
+    <section class="combined-panel">
+      <!-- 上：维修任务统计 -->
+      <div class="combined-block">
+        <div class="panel-header">
+          <h2 class="panel-title">维修任务统计</h2>
+          <span class="panel-hint">本月累计</span>
+        </div>
+        <div class="task-grid">
+          <div class="task-card">
+            <div class="task-top"><div class="task-dot pending"></div><div class="task-label">待派单</div></div>
+            <div class="task-value pending-val">{{ tasks.pending }}</div>
+            <div class="task-bar"><div class="task-fill pending-fill" :style="{ width: taskPercent(tasks.pending) + '%' }"></div></div>
           </div>
-          <div class="task-grid">
-            <div class="task-card card">
-              <div class="task-top">
-                <div class="task-dot pending"></div>
-                <div class="task-label">待派单</div>
-              </div>
-              <div class="task-value pending-val">{{ tasks.pending }}</div>
-              <div class="task-bar">
-                <div class="task-fill pending-fill" :style="{ width: taskPercent(tasks.pending) + '%' }"></div>
-              </div>
-              <div class="task-foot">等待分配维修工</div>
-            </div>
-            <div class="task-card card">
-              <div class="task-top">
-                <div class="task-dot doing"></div>
-                <div class="task-label">进行中</div>
-              </div>
-              <div class="task-value doing-val">{{ tasks.doing }}</div>
-              <div class="task-bar">
-                <div class="task-fill doing-fill" :style="{ width: taskPercent(tasks.doing) + '%' }"></div>
-              </div>
-              <div class="task-foot">正在现场处置</div>
-            </div>
-            <div class="task-card card">
-              <div class="task-top">
-                <div class="task-dot done"></div>
-                <div class="task-label">已完成</div>
-              </div>
-              <div class="task-value done-val">{{ tasks.done }}</div>
-              <div class="task-bar">
-                <div class="task-fill done-fill" :style="{ width: taskPercent(tasks.done) + '%' }"></div>
-              </div>
-              <div class="task-foot">完成率 {{ donePercent }}%</div>
-            </div>
-            <div class="task-card card">
-              <div class="task-top">
-                <div class="task-dot over"></div>
-                <div class="task-label">超时</div>
-              </div>
-              <div class="task-value over-val">{{ tasks.over }}</div>
-              <div class="task-bar">
-                <div class="task-fill over-fill" :style="{ width: taskPercent(tasks.over) + '%' }"></div>
-              </div>
-              <div class="task-foot">SLA 超期未完成</div>
-            </div>
+          <div class="task-card">
+            <div class="task-top"><div class="task-dot doing"></div><div class="task-label">进行中</div></div>
+            <div class="task-value doing-val">{{ tasks.doing }}</div>
+            <div class="task-bar"><div class="task-fill doing-fill" :style="{ width: taskPercent(tasks.doing) + '%' }"></div></div>
           </div>
-        </section>
-
-        <!-- 知识报告审核统计 -->
-        <section class="panel">
-          <div class="panel-header">
-            <h2 class="panel-title">📚 知识报告审核</h2>
-            <span class="panel-hint">员工实践方案贡献</span>
+          <div class="task-card">
+            <div class="task-top"><div class="task-dot done"></div><div class="task-label">已完成</div></div>
+            <div class="task-value done-val">{{ tasks.done }}</div>
+            <div class="task-bar"><div class="task-fill done-fill" :style="{ width: taskPercent(tasks.done) + '%' }"></div></div>
           </div>
-          <div class="kr-grid">
-            <div class="kr-card card kr-pending" @click="goReview('pending')">
-              <div class="kr-top">
-                <div class="kr-icon kr-pending-icon">⏳</div>
-                <div class="kr-hot" v-if="reportStats.pending > 0">{{ reportStats.pending }} 份</div>
-              </div>
-              <div class="kr-num kr-pending-num">{{ reportStats.pending }}</div>
-              <div class="kr-label">待审核报告</div>
-              <div class="kr-action">立即处理 →</div>
-            </div>
-            <div class="kr-card card kr-approved" @click="goReview('approved')">
-              <div class="kr-top">
-                <div class="kr-icon kr-approved-icon">✓</div>
-              </div>
-              <div class="kr-num kr-approved-num">{{ reportStats.approved }}</div>
-              <div class="kr-label">已通过（本月）</div>
-              <div class="kr-action">已入库知识库</div>
-            </div>
-            <div class="kr-card card kr-total" @click="goReview('all')">
-              <div class="kr-top">
-                <div class="kr-icon kr-total-icon">📑</div>
-              </div>
-              <div class="kr-num kr-total-num">{{ reportStats.total }}</div>
-              <div class="kr-label">累计提交</div>
-              <div class="kr-action">员工累计贡献量</div>
-            </div>
-            <div class="kr-card card kr-case" @click="goReview('synced')">
-              <div class="kr-top">
-                <div class="kr-icon kr-case-icon">📂</div>
-              </div>
-              <div class="kr-num kr-case-num">{{ reportStats.synced }}</div>
-              <div class="kr-label">已同步入库</div>
-              <div class="kr-action">案例库 / 作业指导</div>
-            </div>
+          <div class="task-card">
+            <div class="task-top"><div class="task-dot over"></div><div class="task-label">超时</div></div>
+            <div class="task-value over-val">{{ tasks.over }}</div>
+            <div class="task-bar"><div class="task-fill over-fill" :style="{ width: taskPercent(tasks.over) + '%' }"></div></div>
           </div>
-        </section>
+        </div>
       </div>
-    </transition>
+
+      <div class="combined-divider"></div>
+
+      <!-- 下：知识报告审核统计 -->
+      <div class="combined-block">
+        <div class="panel-header">
+          <h2 class="panel-title">📚 知识报告审核</h2>
+          <span class="panel-hint">员工实践方案贡献</span>
+        </div>
+        <div class="kr-grid">
+          <div class="kr-card kr-pending" @click="goReview('pending')">
+            <div class="kr-top"><span class="kr-icon kr-pending-icon">⏳</span><span class="kr-label">待审核</span></div>
+            <div class="kr-num kr-pending-num">{{ reportStats.pending }}</div>
+          </div>
+          <div class="kr-card kr-approved" @click="goReview('approved')">
+            <div class="kr-top"><span class="kr-icon kr-approved-icon">✓</span><span class="kr-label">已通过</span></div>
+            <div class="kr-num kr-approved-num">{{ reportStats.approved }}</div>
+          </div>
+          <div class="kr-card kr-total" @click="goReview('all')">
+            <div class="kr-top"><span class="kr-icon kr-total-icon">📑</span><span class="kr-label">累计提交</span></div>
+            <div class="kr-num kr-total-num">{{ reportStats.total }}</div>
+          </div>
+          <div class="kr-card kr-case" @click="goReview('synced')">
+            <div class="kr-top"><span class="kr-icon kr-case-icon">📂</span><span class="kr-label">已入库</span></div>
+            <div class="kr-num kr-case-num">{{ reportStats.synced }}</div>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -256,7 +227,8 @@ export default {
       reportStats: { total: 0, pending: 0, approved: 0, synced: 0 },
       pieData: [],
       trendData: [],
-      showMore: false,
+      trendPrev: [],
+      trendRange: 7,
       loading: false,
       _retryTimer: null
     }
@@ -306,13 +278,39 @@ export default {
         pct: total === 0 ? 0 : Math.round(p.value / total * 100)
       }))
     },
+    trendSlice() {
+      const range = this.trendRange
+      return Array.isArray(this.trendData) ? this.trendData.slice(-range) : []
+    },
+    xAxisTicks() {
+      const data = this.trendSlice
+      const n = data.length
+      if (!n) return []
+      // 7 天全标；30 天采 7 个（首尾必含 + 中间均匀 5 个）
+      const count = n <= 7 ? n : 7
+      const step = (n - 1) / (count - 1)
+      const ticks = []
+      for (let i = 0; i < count; i++) {
+        const idx = Math.round(i * step)
+        ticks.push({
+          label: data[idx].label,
+          x: 40 + idx * (540 / (n - 1))
+        })
+      }
+      return ticks
+    },
+    trendPrevSlice() {
+      const range = this.trendRange
+      return Array.isArray(this.trendPrev) ? this.trendPrev.slice(-range) : []
+    },
     dataPoints() {
-      const n = this.trendData.length
+      const data = this.trendSlice
+      const n = data.length
       if (n < 2) return []
-      const maxV = Math.max(5, ...this.trendData.map(d => Number(d.v) || 0))
+      const maxV = 15
       const xStep = (580 - 40) / (n - 1)
-      const yMin = 190, yMax = 40
-      return this.trendData.map((d, i) => {
+      const yMin = 170, yMax = 35
+      return data.map((d, i) => {
         const v = Number(d.v) || 0
         return {
           x: 40 + i * xStep,
@@ -329,7 +327,33 @@ export default {
       if (!pts.length) return ''
       const first = pts[0], last = pts[pts.length - 1]
       const poly = pts.map(p => `L${p.x},${p.y}`).join(' ').replace(/^L/, 'M')
-      return `${poly} L${last.x},190 L${first.x},190 Z`
+      return `${poly} L${last.x},170 L${first.x},170 Z`
+    },
+    dataPointsPrev() {
+      const data = this.trendPrevSlice
+      const n = data.length
+      if (n < 2) return []
+      const maxV = 15
+      const xStep = (580 - 40) / (n - 1)
+      const yMin = 170, yMax = 35
+      return data.map((d, i) => {
+        const v = Number(d.v) || 0
+        return {
+          x: 40 + i * xStep,
+          y: yMin - (v / maxV) * (yMin - yMax),
+          v
+        }
+      })
+    },
+    linePointsPrev() {
+      return this.dataPointsPrev.length ? this.dataPointsPrev.map(p => `${p.x},${p.y}`).join(' ') : '40,190 580,190'
+    },
+    areaPathPrev() {
+      const pts = this.dataPointsPrev
+      if (!pts.length) return ''
+      const first = pts[0], last = pts[pts.length - 1]
+      const poly = pts.map(p => `L${p.x},${p.y}`).join(' ').replace(/^L/, 'M')
+      return `${poly} L${last.x},170 L${first.x},170 Z`
     }
   },
   created() {
@@ -369,6 +393,7 @@ export default {
         }
         this.pieData = Array.isArray(d.pie) ? d.pie : []
         this.trendData = Array.isArray(d.trend) ? d.trend : []
+        this.trendPrev = Array.isArray(d.trend_prev) ? d.trend_prev : []
       } catch (e) {
         if (!this._retryTimer) {
           this._retryTimer = setTimeout(() => {
@@ -411,8 +436,8 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px;
-  margin-bottom: 24px;
+  padding: 14px 20px;
+  margin-bottom: 16px;
   background:
     linear-gradient(135deg, rgba(37, 99, 235, 0.10), transparent 60%),
     linear-gradient(315deg, rgba(6, 182, 212, 0.06), transparent 60%);
@@ -449,7 +474,7 @@ export default {
 }
 
 /* ====================== Panel 通用 ====================== */
-.panel { margin-bottom: 24px; }
+.panel { margin-bottom: 16px; }
 .panel-header {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 12px;
@@ -478,59 +503,87 @@ export default {
 .overview-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  gap: 10px;
 }
 .ov-card {
-  padding: 20px;
-  display: grid;
-  grid-template-columns: 56px 1fr;
-  grid-template-rows: auto auto;
-  column-gap: 14px;
-  row-gap: 12px;
-  position: relative;
-  overflow: hidden;
+  position: relative; overflow: hidden;
+  padding: 12px 14px;
+  display: flex; flex-direction: row; align-items: flex-start; gap: 10px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
 }
+.ov-data { display: flex; flex-direction: column; gap: 2px; }
+/* 立体装饰图案（双层叠加 + 阴影 = 3D 效果） */
 .ov-card::after {
   content: ''; position: absolute;
-  right: -40px; bottom: -40px;
-  width: 140px; height: 140px; border-radius: 50%;
-  opacity: 0.06;
+  right: -28px; bottom: -28px;
+  width: 90px; height: 90px; border-radius: 50%;
+  opacity: 0.15;
+  box-shadow: inset -3px -3px 8px rgba(0,0,0,0.2), inset 3px 3px 8px rgba(255,255,255,0.1);
 }
+.ov-card::before {
+  content: ''; position: absolute;
+  right: -8px; top: -8px;
+  width: 36px; height: 36px; border-radius: 8px;
+  opacity: 0.1;
+  transform: rotate(45deg);
+}
+.ov-card:has(.total)::after  { background: var(--primary); }
+.ov-card:has(.total)::before { background: var(--primary); }
+.ov-card:has(.bad-val)::after { background: var(--accent-red); opacity: 0.22; }
+.ov-card:has(.bad-val)::before { background: var(--accent-red); }
+.ov-card:has(.ing-val)::after { background: var(--accent-cyan); }
+.ov-card:has(.ing-val)::before { background: var(--accent-cyan); }
+.ov-card:has(.ok-val)::after  { background: var(--accent-green); }
+.ov-card:has(.ok-val)::before  { background: var(--accent-green); }
+/* 故障停机：高风险视觉突出 */
+.ov-card:has(.bad-val) {
+  border: 1px solid var(--accent-red);
+  background: rgba(239, 68, 68, 0.08);
+}
+.ov-card.is-alert {
+  animation: ovAlertBreathe 2s ease-in-out infinite;
+}
+.ov-card.is-alert .ov-icon {
+  animation: ovAlertIcon 2s ease-in-out infinite;
+}
+@keyframes ovAlertBreathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 18px 3px rgba(239, 68, 68, 0.40); }
+}
+@keyframes ovAlertIcon {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 14px 2px rgba(239, 68, 68, 0.55); }
+}
+/* icon 底座带立体阴影 */
 .ov-icon {
-  grid-row: 1 / 3;
-  width: 56px; height: 56px;
-  border-radius: 16px;
+  width: 40px; height: 40px;
+  border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 1.5rem; font-weight: 700;
+  font-size: 1.2rem; font-weight: 700;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.1);
 }
-.ov-icon.total { color: var(--primary);       background: var(--primary-subtle); border: 1px solid var(--border-active); }
-.ov-icon.ok    { color: var(--accent-green);  background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); }
-.ov-icon.ing   { color: var(--accent-cyan);   background: rgba(6,182,212,0.12); border: 1px solid rgba(6,182,212,0.25); }
-.ov-icon.bad   { color: var(--accent-red);    background: rgba(239,68,68,0.1);  border: 1px solid rgba(239,68,68,0.22); }
-
-.ov-card:nth-child(1)::after { background: var(--primary); }
-.ov-card:nth-child(2)::after { background: var(--accent-green); }
-.ov-card:nth-child(3)::after { background: var(--primary); }
-.ov-card:nth-child(4)::after { background: var(--accent-red); }
+.ov-icon.total { color: var(--primary);       background: linear-gradient(135deg, var(--primary-subtle), rgba(37,99,235,0.2)); border: 1px solid var(--border-active); }
+.ov-icon.ok    { color: var(--accent-green);  background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(16,185,129,0.25)); border: 1px solid rgba(16,185,129,0.3); }
+.ov-icon.ing   { color: var(--accent-cyan);   background: linear-gradient(135deg, rgba(6,182,212,0.12), rgba(6,182,212,0.25)); border: 1px solid rgba(6,182,212,0.3); }
+.ov-icon.bad   { color: var(--accent-red);    background: linear-gradient(135deg, rgba(239,68,68,0.1), rgba(239,68,68,0.25)); border: 1px solid rgba(239,68,68,0.3); }
 
 .ov-value {
   font-family: 'Orbitron', sans-serif;
-  font-size: 2.25rem; font-weight: 700; line-height: 1;
+  font-size: 2rem; font-weight: 800; line-height: 1.1;
   color: var(--text-primary);
 }
-.ov-value.ok-val  { color: var(--accent-green); text-shadow: 0 0 12px rgba(16,185,129,0.3); }
-.ov-value.ing-val { color: var(--accent-cyan);  text-shadow: 0 0 12px rgba(6,182,212,0.3); }
-.ov-value.bad-val { color: var(--accent-red);  text-shadow: 0 0 12px rgba(239,68,68,0.35); }
+.ov-value.ok-val  { color: var(--accent-green); }
+.ov-value.ing-val { color: var(--accent-cyan); }
+.ov-value.bad-val { color: var(--accent-red); }
 
 .ov-label {
-  font-size: 0.8125rem; color: var(--text-muted);
-  margin-top: 6px;
+  font-size: 0.7rem; color: var(--text-muted);
 }
 .ov-foot {
-  grid-column: 2;
-  font-size: 0.75rem;
-  padding: 4px 10px;
-  border-radius: 999px;
+  font-size: 0.65rem;
+  color: var(--text-secondary);
   justify-self: start;
   background: rgba(255,255,255,0.04);
   color: var(--text-muted);
@@ -546,25 +599,35 @@ export default {
   gap: 16px;
 }
 .task-card { padding: 20px; }
+.task-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.task-card {
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+}
 .task-top {
-  display: flex; align-items: center; gap: 10px;
-  margin-bottom: 12px;
+  display: flex; align-items: center; gap: 5px;
+  margin-bottom: 4px;
 }
 .task-dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  box-shadow: 0 0 10px currentColor;
+  width: 6px; height: 6px; border-radius: 50%;
 }
-.task-dot.pending { color: var(--accent-orange); background: var(--accent-orange); }
-.task-dot.doing   { color: var(--accent-cyan);   background: var(--accent-cyan); }
-.task-dot.done    { color: var(--accent-green);  background: var(--accent-green); }
-.task-dot.over    { color: var(--accent-red);    background: var(--accent-red); }
+.task-dot.pending { background: var(--accent-orange); }
+.task-dot.doing   { background: var(--accent-cyan); }
+.task-dot.done    { background: var(--accent-green); }
+.task-dot.over    { background: var(--accent-red); }
 
-.task-label { font-size: 0.8125rem; color: var(--text-muted); }
+.task-label { font-size: 0.68rem; color: var(--text-muted); }
 
 .task-value {
   font-family: 'Orbitron', sans-serif;
-  font-size: 1.75rem; font-weight: 700; line-height: 1;
-  margin-bottom: 10px;
+  font-size: 1.1rem; font-weight: 700; line-height: 1;
+  margin-bottom: 4px;
 }
 .task-value.pending-val { color: var(--accent-orange); }
 .task-value.doing-val   { color: var(--accent-cyan); }
@@ -572,9 +635,9 @@ export default {
 .task-value.over-val    { color: var(--accent-red); }
 
 .task-bar {
-  height: 6px; border-radius: 999px;
+  height: 4px; border-radius: 999px;
   background: rgba(255,255,255,0.06);
-  overflow: hidden; margin-bottom: 10px;
+  overflow: hidden; margin-bottom: 6px;
 }
 .task-fill {
   height: 100%; border-radius: 999px;
@@ -587,192 +650,217 @@ export default {
 
 .task-foot { font-size: 0.75rem; color: var(--text-secondary); }
 
-/* ====================== 图表通用 ====================== */
-.chart-panel { padding: 20px 24px; }
+/* ====================== 图表行（flex 同行，不走全局 .panel/.card 样式） ====================== */
 .chart-row {
-  display: grid;
-  grid-template-columns: 1fr 1.4fr;
-  gap: 16px;
-  margin-bottom: 24px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.chart-panel {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
 }
 
-/* 饼图 */
+/* 饼图（左右布局：饼 + 图例，尽可能放大） */
 .pie-wrap {
-  display: grid;
-  grid-template-columns: 200px 1fr;
-  gap: 28px;
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  min-height: 220px;
+  justify-content: center;
+  gap: 10px;
+  flex: 1;
+  min-height: 120px;
 }
 .pie {
-  width: 180px; height: 180px; border-radius: 50%;
-  position: relative;
-  margin: 0 auto;
+  width: 130px; height: 130px; border-radius: 50%;
+  position: relative; flex-shrink: 0;
   filter: drop-shadow(0 0 12px rgba(37,99,235,0.12));
 }
 .pie-hole {
-  position: absolute; inset: 24px;
+  position: absolute; inset: 16px;
   border-radius: 50%;
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  box-shadow: inset 0 0 18px rgba(0,0,0,0.3);
 }
 .pie-total {
   font-family: 'Orbitron', sans-serif;
-  font-size: 2rem; font-weight: 700; color: var(--primary);
+  font-size: 1.6rem; font-weight: 700; color: var(--primary);
 }
-.pie-sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
+.pie-sub { font-size: 0.7rem; color: var(--text-muted); }
 
 .pie-legend {
   list-style: none; padding: 0; margin: 0;
-  display: flex; flex-direction: column; gap: 14px;
+  display: flex; flex-direction: column; gap: 5px;
 }
 .pie-legend li {
-  display: grid;
-  grid-template-columns: 14px 1fr auto auto;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.8125rem;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.75rem;
 }
 .legend-dot {
-  width: 12px; height: 12px; border-radius: 4px;
-  box-shadow: 0 0 8px currentColor;
+  width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0;
 }
 .legend-name { color: var(--text-secondary); }
 .legend-num {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 600; color: var(--text-primary);
-}
-.legend-pct {
-  padding: 2px 8px; border-radius: 999px;
-  background: rgba(255,255,255,0.04);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.6875rem; color: var(--text-muted);
+  margin-left: auto;
 }
 
-/* 折线图 */
-.line-wrap { width: 100%; }
+/* 折线图（尽可能放大，overflow 防止溢出卡片） */
+.line-wrap { width: 100%; flex: 1; overflow: hidden; }
 .line-svg {
-  width: 100%; height: 240px;
+  width: 100%; height: 200px;
 }
 .grid line { stroke: rgba(255,255,255,0.06); stroke-dasharray: 3 3; }
 .y-axis text, .x-axis text {
-  fill: var(--text-muted);
-  font-size: 11px;
+  fill: var(--text-secondary);
+  font-size: 13px;
   font-family: 'JetBrains Mono', monospace;
 }
 .data-points .p-val {
-  fill: var(--primary);
+  fill: var(--text-primary);
   font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+}
+.data-points-prev .p-val {
+  fill: #f59e0b;
+  font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
   font-weight: 600;
 }
 
+/* 折线图图例（本周 / 上周）*/
+.trend-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+}
+.legend-line {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top-width: 3px;
+  border-top-style: solid;
+}
+.legend-line.this-week {
+  border-top-color: #2563eb;
+}
+.legend-line.prev-week {
+  border-top-color: #f59e0b;
+  border-top-style: dashed;
+}
+
+/* 折线图时间范围切换 */
+.trend-range {
+  display: inline-flex;
+  gap: 0;
+  margin-left: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.trend-range button {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.trend-range button + button {
+  border-left: 1px solid var(--border-subtle);
+}
+.trend-range button.active {
+  background: var(--primary-subtle);
+  color: var(--primary);
+  font-weight: 600;
+}
+.trend-range button:hover:not(.active) {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.04);
+}
+
+/* === 综合统计卡片（维修任务 + 知识报告 上下布局） === */
+.combined-panel {
+  padding: 12px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+}
+.combined-block .panel-header { margin-bottom: 8px; }
+.combined-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 8px 0;
+}
+
 /* === 知识报告卡片 === */
+/* 知识报告卡片 —— 与维修任务 task-card 同布局 */
 .kr-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  gap: 8px;
 }
 .kr-card {
-  padding: 18px 20px;
-  position: relative;
-  overflow: hidden;
-  cursor: default;
-  transition: all 0.25s ease;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
-.kr-card.kr-pending { cursor: pointer; }
-.kr-card.kr-pending:hover {
-  transform: translateY(-3px);
-  border-color: rgba(255,165,2,0.5);
-  box-shadow: 0 10px 28px rgba(255,165,2,0.15);
-}
-.kr-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
+.kr-card:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
 }
 .kr-icon {
-  width: 36px; height: 36px;
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 1.15rem;
+  font-size: 0.85rem;
+  display: inline-block;
+  margin-right: 4px;
 }
-.kr-pending-icon { background: rgba(245,158,11,0.14); color: var(--accent-orange); }
-.kr-approved-icon { background: rgba(16,185,129,0.14); color: var(--accent-green); }
-.kr-total-icon { background: var(--primary-subtle); color: var(--primary); }
-.kr-case-icon { background: rgba(6,182,212,0.14); color: var(--accent-cyan); }
-.kr-hot {
-  font-size: 0.6875rem;
-  padding: 3px 10px;
-  background: var(--accent-amber);
-  color: #fff;
-  border-radius: 999px;
-  font-weight: 600;
-  animation: pulse-badge 1.8s ease-in-out infinite;
-}
-@keyframes pulse-badge {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255,165,2,0.4); }
-  50% { box-shadow: 0 0 0 6px rgba(255,165,2,0); }
-}
+.kr-pending-icon { color: var(--accent-orange); }
+.kr-approved-icon { color: var(--accent-green); }
+.kr-total-icon { color: var(--primary); }
+.kr-case-icon { color: var(--accent-cyan); }
 .kr-num {
-  font-size: 2.25rem;
-  font-weight: 700;
-  line-height: 1;
   font-family: 'Orbitron', sans-serif;
+  font-size: 1.1rem; font-weight: 700; line-height: 1;
+  margin: 4px 0;
 }
 .kr-pending-num { color: var(--accent-orange); }
 .kr-approved-num { color: var(--accent-green); }
 .kr-total-num { color: var(--primary); }
 .kr-case-num { color: var(--accent-cyan); }
 .kr-label {
-  margin-top: 10px;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-  font-weight: 500;
+  font-size: 0.68rem;
+  color: var(--text-muted);
 }
-.kr-action {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--border-subtle);
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
-.kr-pending .kr-action {
-  color: var(--accent-orange);
-  font-weight: 600;
-}
-/* ====================== 折叠面板 ====================== */
-.more-stats-bar { margin: 0 0 16px; }
-.link-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 16px; border-radius: var(--radius);
-  background: var(--bg-elevated); color: var(--text-secondary);
-  border: 1px solid var(--border-subtle);
-  cursor: pointer; font-size: 0.8125rem;
-  transition: all var(--duration) var(--ease);
-}
-.link-btn:hover {
-  color: var(--primary); border-color: var(--border-hover);
-  background: var(--primary-subtle);
-}
-.link-icon {
-  display: inline-block; font-size: 0.75rem;
-  transition: transform var(--duration) var(--ease);
-}
-.link-icon.open { transform: rotate(90deg); }
-
-.fade-enter-active, .fade-leave-active { transition: opacity 220ms var(--ease); }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
 
 @media (max-width: 1080px) {
   .chart-row { grid-template-columns: 1fr; }
-  .kr-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 560px) {
-  .kr-grid { grid-template-columns: 1fr; }
+  .task-grid { grid-template-columns: repeat(2, 1fr); }
+  .kr-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

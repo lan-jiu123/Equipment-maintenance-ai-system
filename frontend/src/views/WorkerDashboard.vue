@@ -8,15 +8,13 @@
         </div>
         <h1 class="hero-title">今天也要加油呀，{{ displayName }} 💪</h1>
         <p class="hero-sub">
-          你有 <strong class="num-warn">{{ pendingMine }}</strong> 个待处理工单 ·
-          本月已完成 <strong class="num-ok">{{ doneMine }}</strong> 单 ·
-          平均处理时长 <strong class="num-ok">{{ avgTime }}</strong> 小时
+          你有 <strong class="num-warn">{{ pendingMine }}</strong> 个待接单 ·
+          <strong class="num-ok">{{ ongoingMine }}</strong> 个进行中 ·
+          本月已完成 <strong class="num-ok">{{ doneMine }}</strong> 单
         </p>
         <div class="hero-status">
           <span class="status-dot online"></span>
           <span>你目前处于【在岗】状态</span>
-          <span class="sep">|</span>
-          <span>团队排名：本月第 <b>{{ rank }}</b> / {{ totalWorkers }} 名</span>
           <span class="sep">|</span>
           <span class="status-dot warning"></span>
           <span>{{ highUrgent }} 个加急单需优先处理</span>
@@ -36,7 +34,7 @@
         <div class="stat-icon orange">📌</div>
         <div class="stat-info">
           <div class="stat-value">{{ pendingMine }}</div>
-          <div class="stat-label">我的待办</div>
+          <div class="stat-label">待处理</div>
           <div class="stat-trend down">含 {{ highUrgent }} 个加急</div>
         </div>
       </div>
@@ -45,7 +43,7 @@
         <div class="stat-info">
           <div class="stat-value">{{ ongoingMine }}</div>
           <div class="stat-label">进行中</div>
-          <div class="stat-trend up">需在今日内完成</div>
+          <div class="stat-trend up">需今日内完成</div>
         </div>
       </div>
       <div class="stat-card card">
@@ -67,41 +65,35 @@
     </section>
 
     <section class="quick-section">
-      <h2 class="section-title">快捷入口</h2>
+      <h2 class="section-title">快捷操作</h2>
       <div class="quick-grid">
-        <button class="quick-card card" @click="openReport">
-          <span class="quick-icon">📝</span>
-          <span class="quick-label">维修上报</span>
-          <span class="quick-desc">发现设备异常，立即上报形成工单</span>
-          <span class="quick-cta">我要上报 →</span>
+        <button class="quick-card card fault-card" @click="openFaultReport">
+          <span class="quick-icon">⚠️</span>
+          <span class="quick-label">故障设备上报</span>
+          <span class="quick-desc">发现设备异常 / 故障一键上报，直接入库故障停机设备</span>
+          <span class="quick-cta fault-cta">去上报 →</span>
         </button>
         <router-link :to="{ path: '/search', query: { q: '' } }" class="quick-card card">
-          <span class="quick-icon">◎</span>
+          <span class="quick-icon">🔍</span>
           <span class="quick-label">AI 查故障</span>
-          <span class="quick-desc">不会修？输入现象秒出结构化处置步骤</span>
+          <span class="quick-desc">输入故障现象，AI秒出处置方案</span>
           <span class="quick-cta">去检索 →</span>
         </router-link>
         <button class="quick-card card contrib-card" @click="openContrib">
           <span class="quick-icon">📚</span>
           <span class="quick-label">我要贡献方案</span>
-          <span class="quick-desc">AI 没解决？实践出真知，提交方案入库</span>
+          <span class="quick-desc">提交实践经验，帮助更多同事</span>
           <span class="quick-cta contrib-cta">
-            <b v-if="myStats.pending">{{ myStats.pending }} 待审核</b>
+            <b v-if="myStats.pending">{{ myStats.pending }} 已提交</b>
             <span v-else>去贡献 →</span>
           </span>
         </button>
         <router-link to="/guide" class="quick-card card">
-          <span class="quick-icon">⇢</span>
+          <span class="quick-icon">📋</span>
           <span class="quick-label">作业指导</span>
           <span class="quick-desc">标准操作规程 SOP + 安全规范</span>
           <span class="quick-cta">查看规程 →</span>
         </router-link>
-        <button class="quick-card card" @click="openMyProfile">
-          <span class="quick-icon">🧾</span>
-          <span class="quick-label">我的绩效</span>
-          <span class="quick-desc">完成率 / SLA / 评价 等个人统计</span>
-          <span class="quick-cta">查看详情 →</span>
-        </button>
       </div>
     </section>
 
@@ -110,7 +102,7 @@
         <div class="section-header">
           <h2 class="section-title">
             <span class="title-icon">📌</span>
-            我的待办工单
+            待处理工单
           </h2>
           <div class="section-actions">
             <button
@@ -121,13 +113,14 @@
               @click="activeTab = t.key; page = 1"
               type="button"
             >{{ t.label }}<span class="pill-num">{{ t.count }}</span></button>
+            <router-link to="/tickets" class="more-link">查看全部 →</router-link>
           </div>
         </div>
 
         <div class="todo-list">
           <div v-if="loading" class="todo-loading">
             <div class="skeleton-wrap">
-              <div v-for="i in 4" :key="i" class="sk-todo"><span></span><span></span><span></span><span></span><span></span></div>
+              <div v-for="i in 3" :key="i" class="sk-todo"><span></span><span></span><span></span><span></span></div>
             </div>
           </div>
           <div
@@ -149,8 +142,6 @@
                 <div class="todo-meta">
                   <span>◈ {{ o.device_name || '未关联设备' }}</span>
                   <span class="dot">·</span>
-                  <span>派单人：{{ o.submitter_name || '系统' }}</span>
-                  <span class="dot">·</span>
                   <span>{{ o.createdText }}</span>
                 </div>
                 <div class="todo-deadline" :class="{ ot: isOT(o) }">
@@ -160,20 +151,16 @@
               </div>
             </div>
             <div class="todo-actions">
-              <button v-if="o.status === 'assigned'" class="act-btn primary" :disabled="o._op" @click="acceptOrder(o)">
-                {{ o._op === 'accept' ? '接单中…' : '接单' }}
-              </button>
-              <button v-if="o.status === 'ongoing'" class="act-btn success" :disabled="o._op" @click="submitReport(o)">
-                {{ o._op === 'complete' ? '提交中…' : '提交维修报告' }}
+              <button class="act-btn primary" :disabled="o._op" @click="acceptOrder(o)">
+                {{ o._op === 'accept' ? '处理中…' : '开始处理' }}
               </button>
               <button class="act-btn" @click="askAI(o)">AI 辅助</button>
-              <button class="act-btn ghost" @click="viewDetail(o)">详情</button>
             </div>
           </div>
           <div v-if="!loading && todoList.length === 0" class="todo-empty">
             <div class="empty-icon">🎉</div>
-            <div class="empty-title">太棒了！当前没有待办</div>
-            <div class="empty-desc">你可以去「维修上报」主动发现问题，或看看案例库充充电～</div>
+            <div class="empty-title">太棒了！当前没有待处理工单</div>
+            <div class="empty-desc">你可以去「我的工单」查看进行中或已完成的工单</div>
           </div>
         </div>
 
@@ -218,8 +205,6 @@
                 <div class="recent-title">{{ h.title }}</div>
                 <div class="recent-meta">
                   <span>{{ h.device_name || '通用' }}</span>
-                  <span class="dot">·</span>
-                  <span class="mono">{{ h.costText }}</span>
                   <span class="dot">·</span>
                   <span>{{ h.finishText }}</span>
                 </div>
@@ -279,6 +264,92 @@
       </div>
     </div>
 
+    <!-- 故障设备上报弹窗 -->
+    <div v-if="faultReportOpen" class="modal-mask" @click="faultReportOpen = false">
+      <div class="modal-card fault-modal card" @click.stop>
+        <div class="modal-head">
+          <h3>⚠️ 故障设备上报</h3>
+          <button class="modal-close" @click="faultReportOpen = false" type="button">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- 设备选择：可输入 + 自定义下拉列表 -->
+          <div class="fault-row device-select-row">
+            <label class="fault-label required">设备名称</label>
+            <input v-model="faultForm.name" name="fault_dev_name" class="input" placeholder="输入或选择设备名称" autocomplete="off" @focus="deviceListShow = true" @input="onDeviceInput" @blur="setTimeout(() => deviceListShow = false, 200)" />
+            <div v-if="deviceListShow && filteredDevices.length" class="device-dropdown">
+              <div v-for="d in filteredDevices" :key="d.id" class="device-dropdown-item" @mousedown.prevent="selectDevice(d)">
+                <span class="dd-code">{{ d.code }}</span>
+                <span class="dd-name">{{ d.name }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 设备信息（选中已有设备后自动填充，选"其他"时手动填写） -->
+          <div class="fault-device-info">
+            <div class="fault-row fault-row-2">
+              <div><label class="fault-label required">设备编号</label><input v-model="faultForm.code" class="input" placeholder="如：MC-999" /></div>
+              <div>
+                <label class="fault-label required">设备类型</label>
+                <select v-model="faultForm.tag" class="input">
+                  <option value="机械">机械</option>
+                  <option value="电气">电气</option>
+                  <option value="液压">液压</option>
+                  <option value="仪表">仪表</option>
+                  <option value="安全">安全</option>
+                  <option value="综合">综合</option>
+                </select>
+              </div>
+            </div>
+            <div class="fault-row fault-row-2">
+              <div><label class="fault-label required">所在区域</label><input v-model="faultForm.location" class="input" placeholder="如：车间 A / 3号线" /></div>
+              <div><label class="fault-label">型号/规格</label><input v-model="faultForm.spec" class="input" placeholder="如：SKF-6308" /></div>
+            </div>
+            <div class="fault-row">
+              <label class="fault-label required">设备状态</label><input v-model="faultForm.device_status" class="input" placeholder="如：故障停机" autocomplete="off" />
+            </div>
+          </div>
+
+          <!-- 故障描述 -->
+          <div class="fault-row">
+            <label class="fault-label required">故障现象详细说明</label>
+            <textarea v-model="faultForm.desc" class="input" rows="4" placeholder="详细描述故障现象：设备启动后持续异响，温度超过 70℃，空载运行电流超标..." autocomplete="new-password"></textarea>
+          </div>
+
+          <!-- 附件上传 -->
+          <div class="fault-row">
+            <label class="fault-label">附件上传（选填，多文件，单文件≤10MB）</label>
+            <div class="attach-area">
+              <label class="btn btn-outline btn-xs attach-picker">
+                📷 选择文件
+                <input ref="faultAttachInput" type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" @change="handleFaultAttach" />
+              </label>
+              <span class="attach-hint">{{ faultAttachFiles.length }} 个文件已选</span>
+            </div>
+            <div v-if="faultAttachFiles.length" class="attach-list">
+              <div v-for="(f, fi) in faultAttachFiles" :key="fi" class="attach-item">
+                <span class="attach-name">{{ f.name }}</span>
+                <button type="button" class="btn btn-xs btn-danger" @click="removeAttach(fi)">删除</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 自动填充信息 -->
+          <div class="fault-row fault-auto-info">
+            <span>📋 上报人：{{ currentUser }}</span>
+            <span>🕐 上报时间：{{ currentReportTime }}</span>
+          </div>
+
+          <div v-if="faultErr" class="kr-err">{{ faultErr }}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-outline" @click="faultReportOpen = false">取消</button>
+          <button class="btn btn-warning" @click="submitFaultReport" :disabled="faultSubmitting">
+            {{ faultSubmitting ? '提交中…' : '提交上报' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div v-if="modalOpen" class="modal-mask" @click="modalOpen = false">
       <div class="modal-card card" @click.stop>
         <div class="modal-head">
@@ -313,12 +384,13 @@ import { getUser } from '../utils/auth'
 import { fetchUserStats, getUserStats } from '../utils/knowledge'
 import KnowledgeReport from '../components/KnowledgeReport.vue'
 import {
-  listTicketsApi, acceptTicketApi, completeTicketApi, submitReportApi
+  listTicketsApi, acceptTicketApi, completeTicketApi, submitReportApi,
+  listDevicesApi, reportFaultApi
 } from '../utils/api'
 import { toast as _toast } from '../utils/request'
 
 const LEVEL_TO_PRIORITY = { low: 'low', mid: 'mid', high: 'high', critical: 'high' }
-const LEVEL_LABEL = { low: '低', mid: '中', high: '高', critical: '紧急' }
+const LEVEL_LABEL = { low: '低', mid: '中', high: '高（加急）', critical: '高（加急）' }
 
 function _tsToText(ts) {
   if (!ts) return '-'
@@ -338,7 +410,7 @@ function _tsToText(ts) {
 function _deadlineFromTs(ts, level) {
   if (!ts) return { text: '未设置', ot: false }
   const start = new Date(Number(ts) * 1000).getTime()
-  const addH = { low: 48, mid: 24, high: 6, critical: 2 }[level] || 24
+  const addH = { low: 48, mid: 24, high: 6, critical: 6 }[level] || 24
   const dl = start + addH * 3600 * 1000
   const now = Date.now()
   const remainMs = dl - now
@@ -351,7 +423,8 @@ function _deadlineFromTs(ts, level) {
 }
 
 function _mapTicket(t, meId) {
-  const level = t.level || 'mid'
+  let level = t.level || 'mid'
+  if (level === 'critical') level = 'high'
   const dl = _deadlineFromTs(t.submit_time_ts, level)
   const isAssignedToMe = t.assignee_id && Number(t.assignee_id) === Number(meId)
   return {
@@ -362,11 +435,10 @@ function _mapTicket(t, meId) {
     priority: LEVEL_TO_PRIORITY[level] || 'mid',
     level: level,
     level_label: t.level_label || LEVEL_LABEL[level] || '中',
-    status: t.status === 'pending' && isAssignedToMe ? 'assigned'
+    status: t.status === 'pending' && isAssignedToMe ? 'pending'
           : t.status === 'pending' && !isAssignedToMe ? 'pending'
-          : (t.status === 'processing' || t.status === 'doing') ? 'ongoing'
+          : (t.status === 'processing' || t.status === 'doing' || t.status === 'overdue' || t.status === 'over') ? 'ongoing'
           : (t.status === 'completed' || t.status === 'done') ? 'done'
-          : (t.status === 'overdue' || t.status === 'over') ? 'over'
           : t.status || 'pending',
     status_label: t.status_label || '-',
     submitter_name: t.submitter_name || '系统',
@@ -411,7 +483,14 @@ export default {
       toast: '',
       myStats: { total: 0, pending: 0, approved: 0, rejected: 0 },
       _statsLoading: false,
-      _statsHydrated: false
+      _statsHydrated: false,
+      faultReportOpen: false,
+      faultSubmitting: false,
+      faultErr: '',
+      faultAttachFiles: [],
+      deviceList: [],
+      faultForm: { device_id: null, desc: '', code: '', name: '', tag: '机械', location: '', spec: '', device_status: '故障停机' },
+      deviceListShow: false
     }
   },
   computed: {
@@ -424,12 +503,10 @@ export default {
     },
     myActive() {
       const meId = this.meId
-      return this.allTickets.filter(t =>
-        (t.status === 'assigned' || t.status === 'ongoing' || t.status === 'pending')
-      )
+      return this.allTickets.filter(t => t.status === 'pending')
     },
-    pendingMine() { return this.myActive.filter(t => t.status === 'assigned').length },
-    ongoingMine() { return this.myActive.filter(t => t.status === 'ongoing').length },
+    pendingMine() { return this.myActive.length },
+    ongoingMine() { return this.allTickets.filter(t => t.status === 'ongoing').length },
     highUrgent() { return this.myActive.filter(t => t.priority === 'high').length },
     doneMine() {
       return this.allTickets.filter(t => t.status === 'completed' || t.status === 'done').length
@@ -466,16 +543,13 @@ export default {
     todoTabs() {
       const all = this.myActive.length
       const urgent = this.myActive.filter(t => t.priority === 'high').length
-      const assigned = this.myActive.filter(t => t.status === 'assigned').length
       return [
         { key: 'all',      label: '全部',   count: all },
-        { key: 'urgent',   label: '加急',   count: urgent },
-        { key: 'assigned', label: '待接单', count: assigned }
+        { key: 'urgent',   label: '加急',   count: urgent }
       ]
     },
     todoList() {
       if (this.activeTab === 'urgent') return this.myActive.filter(t => t.priority === 'high')
-      if (this.activeTab === 'assigned') return this.myActive.filter(t => t.status === 'assigned')
       return this.myActive
     },
     totalPages() { return Math.max(1, Math.ceil(this.todoList.length / this.size)) },
@@ -667,7 +741,95 @@ export default {
       setTimeout(() => (this.toast = ''), 3500)
     },
     openReport() { this.modalTitle = '维修上报（发现异常一键上报）'; this.modalOpen = true },
-    openMyProfile() { this.modalTitle = '我的绩效'; this.modalOpen = true }
+    openMyProfile() { this.modalTitle = '我的绩效'; this.modalOpen = true },
+    get selectedDevice() {
+      return (this.deviceList || []).find(d => d.id === this.faultForm.device_id) || {}
+    },
+    get currentUser() {
+      const u = getUser()
+      return (u && (u.fullname || u.username)) || '未知'
+    },
+    get currentReportTime() {
+      const now = new Date()
+      return now.toLocaleString('zh-CN')
+    },
+    statusLabel(s) {
+      return ({ normal: '正常运行', repairing: '维修中', down: '故障停机' })[s] || s
+    },
+    async openFaultReport() {
+      this.faultErr = ''
+      this.faultAttachFiles = []
+      this.faultForm = { device_id: '__other__', desc: '', code: '', name: '', tag: '机械', location: '', spec: '', device_status: '故障停机' }
+      this.faultReportOpen = true
+      try {
+        const res = await listDevicesApi({ page: 1, size: 2000 })
+        const items = (res && (res.items || res.data && res.data.items)) || []
+        this.deviceList = Array.isArray(items) ? items.filter(d => d && d.id) : []
+      } catch (e) { /* ignore */ }
+    },
+    get filteredDevices() {
+      if (!this.faultForm) return []
+      const list = Array.isArray(this.deviceList) ? this.deviceList.filter(d => d && d.id) : []
+      const kw = (this.faultForm.name || '').trim().toLowerCase()
+      if (!kw) return list
+      return list.filter(d =>
+        (d.name || '').toLowerCase().includes(kw) || (d.code || '').toLowerCase().includes(kw)
+      )
+    },
+    onDeviceInput() {
+      const match = Array.isArray(this.deviceList) ? this.deviceList.find(d => d && d.id && d.name === this.faultForm.name) : null
+      if (match) {
+        this.faultForm.device_id = match.id
+        this.faultForm.code = match.code || ''
+        this.faultForm.tag = match.tag || '机械'
+        this.faultForm.location = match.location || ''
+        this.faultForm.spec = match.spec || ''
+        this.faultForm.device_status = match.status === 'down' ? '故障停机' : match.status === 'repairing' ? '维修中' : '故障停机'
+      } else {
+        this.faultForm.device_id = null
+      }
+    },
+    selectDevice(d) {
+      this.faultForm.device_id = d.id
+      this.faultForm.name = d.name || ''
+      this.faultForm.code = d.code || ''
+      this.faultForm.tag = d.tag || '机械'
+      this.faultForm.location = d.location || ''
+      this.faultForm.spec = d.spec || ''
+      this.faultForm.device_status = d.status === 'down' ? '故障停机' : d.status === 'repairing' ? '维修中' : '故障停机'
+      this.deviceListShow = false
+    },
+    async handleFaultAttach(event) {
+      const files = Array.from(event.target.files || [])
+      const okTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+      for (const f of files) {
+        if (!okTypes.includes(f.type)) { this.faultErr = '仅支持 JPG/PNG/WebP/PDF'; continue }
+        if (f.size > 10 * 1024 * 1024) { this.faultErr = '文件不能超过 10MB'; continue }
+        if (!this.faultAttachFiles.find(x => x.name === f.name && x.size === f.size)) {
+          // Object.freeze 防止 Vue 2 响应式系统破坏 File 对象导致上传失败
+          this.faultAttachFiles.push(Object.freeze(f))
+        }
+      }
+      this.faultErr = ''
+      if (this.$refs.faultAttachInput) this.$refs.faultAttachInput.value = ''
+    },
+    removeAttach(idx) { this.faultAttachFiles.splice(idx, 1) },
+    async submitFaultReport() {
+      this.faultErr = ''
+      if (!this.faultForm.name.trim()) { this.faultErr = '请填写设备名称'; return }
+      if (!this.faultForm.desc.trim()) { this.faultErr = '请填写故障现象描述'; return }
+      this.faultSubmitting = true
+      try {
+        await reportFaultApi(this.faultForm, this.faultAttachFiles)
+        this.faultReportOpen = false
+        this.faultAttachFiles = []
+        _toast('✓ 故障已上报，设备已标记为故障停机，已通知维修管理员', 'success')
+      } catch (e) {
+        this.faultErr = '提交失败：' + (e.message || '请重试')
+      } finally {
+        this.faultSubmitting = false
+      }
+    }
   }
 }
 </script>
@@ -699,7 +861,7 @@ export default {
 .time-value { font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; color: var(--accent-green); font-weight: 700; line-height: 1.2; }
 .date-value { font-size: 0.8125rem; color: var(--text-secondary); margin-top: 4px; }
 
-.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
 .stat-card { display: flex; align-items: center; gap: 14px; }
 .stat-icon {
   width: 52px; height: 52px; border-radius: var(--radius-lg);
@@ -716,7 +878,7 @@ export default {
 .stat-trend.up { color: var(--accent-green); }
 .stat-trend.down { color: var(--accent-orange); }
 
-.quick-section { margin-bottom: 28px; }
+.quick-section { margin-bottom: 24px; }
 .section-title {
   font-size: 1rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;
   font-weight: 600; margin: 0 0 16px; display: flex; align-items: center; gap: 8px;
@@ -730,11 +892,35 @@ export default {
   background: var(--bg-card, rgba(255,255,255,0.02));
   transition: all var(--duration) var(--ease);
 }
-.quick-card:hover { transform: translateY(-2px); border-color: var(--accent-green, var(--accent-green)); box-shadow: 0 8px 24px rgba(16,185,129,0.08); }
-.quick-icon { font-size: 1.75rem; color: var(--accent-green, var(--accent-green)); margin-bottom: 4px; }
+.quick-card:hover { transform: translateY(-2px); border-color: var(--accent-green); box-shadow: 0 8px 24px rgba(16,185,129,0.08); }
+.fault-card { border-left: 3px solid #ffc107; }
+.fault-card:hover { border-color: #ffc107; box-shadow: 0 8px 24px rgba(255,193,7,0.15); }
+.fault-cta { color: #ffc107; }
+.fault-modal { max-width: 560px; background: var(--bg-surface) !important; }
+.fault-modal .modal-body { overflow-y: auto; flex: 1; min-height: 0; }
+.device-select-row { position: relative; }
+.device-dropdown { position: absolute; top: 100%; left: 0; right: 0; z-index: 100; max-height: 200px; overflow-y: auto; background: var(--bg-elevated); border: 1px solid var(--border-active); border-radius: var(--radius); margin-top: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+.device-dropdown-item { display: flex; gap: 10px; padding: 8px 12px; cursor: pointer; transition: background 0.15s; }
+.device-dropdown-item:hover { background: var(--primary-subtle); }
+.dd-code { font-size: 0.75rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; min-width: 80px; }
+.dd-name { font-size: 0.8125rem; color: var(--text-primary); }
+.fault-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.fault-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fault-label { font-size: 0.8125rem; color: var(--text-secondary); font-weight: 500; }
+.fault-label.required::after { content: '*'; color: var(--accent-red); margin-left: 4px; }
+.fault-hint { font-size: 0.75rem; color: var(--text-muted); padding: 8px 0; }
+.fault-device-info { background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; }
+.fault-static { font-size: 0.8125rem; color: var(--text-primary); padding: 6px 0; }
+.fault-auto-info { display: flex; gap: 16px; font-size: 0.75rem; color: var(--text-muted); padding: 8px 0; }
+.attach-area { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.attach-picker { position: relative; overflow: hidden; cursor: pointer; margin: 0; }
+.attach-picker input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.attach-hint { font-size: 0.75rem; color: var(--text-muted); }
+.btn-xs { padding: 4px 10px; font-size: 0.75rem; }
+.quick-icon { font-size: 1.75rem; color: var(--accent-green); margin-bottom: 4px; }
 .quick-label { font-size: 0.9375rem; font-weight: 600; }
 .quick-desc { font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.5; flex: 1; }
-.quick-cta { font-size: 0.75rem; color: var(--accent-green, var(--accent-green)); font-weight: 500; margin-top: 6px; }
+.quick-cta { font-size: 0.75rem; color: var(--accent-green); font-weight: 500; margin-top: 6px; }
 .contrib-card {
   border: 1px solid rgba(255, 165, 2, 0.3);
   background: linear-gradient(135deg, rgba(255, 165, 2, 0.08), rgba(0, 212, 255, 0.05));
@@ -769,7 +955,7 @@ export default {
 
 .main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
-.section-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.section-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pill-btn {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
   border-radius: 999px; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary);
@@ -777,13 +963,15 @@ export default {
   cursor: pointer; font-family: inherit; transition: all var(--duration) var(--ease);
 }
 .pill-btn:hover { color: var(--text-primary); border-color: var(--primary-dim); }
-.pill-btn.active { color: var(--accent-green, var(--accent-green)); background: rgba(16,185,129,0.10); border-color: rgba(16,185,129,0.25); }
+.pill-btn.active { color: var(--accent-green); background: rgba(16,185,129,0.10); border-color: rgba(16,185,129,0.25); }
 .pill-num {
   display: inline-block; min-width: 18px; padding: 0 5px; height: 18px; line-height: 18px;
   border-radius: 9px; font-size: 0.625rem; font-family: 'JetBrains Mono', monospace;
   background: rgba(255,255,255,0.06); text-align: center;
 }
 .pill-btn.active .pill-num { background: rgba(16,185,129,0.15); color: var(--accent-green); }
+.more-link { font-size: 0.75rem; color: var(--primary); text-decoration: none; cursor: pointer; }
+.more-link:hover { color: var(--primary-dim); }
 
 .todo-section { padding: 22px 20px; min-width: 0; }
 .todo-list { display: flex; flex-direction: column; gap: 12px; }
@@ -839,13 +1027,12 @@ export default {
 .act-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .act-btn.primary { background: var(--primary); color: var(--bg-deep); border-color: var(--primary); font-weight: 600; }
 .act-btn.primary:hover { background: var(--primary-dim); }
-.act-btn.success { background: var(--accent-green, var(--accent-green)); color: #052e16; border-color: var(--accent-green, var(--accent-green)); font-weight: 600; }
+.act-btn.success { background: var(--accent-green); color: #052e16; border-color: var(--accent-green); font-weight: 600; }
 .act-btn.success:hover { opacity: 0.9; }
-.act-btn.ghost { opacity: 0.7; }
 
 .todo-empty { padding: 48px 12px; text-align: center; }
 .empty-icon { font-size: 2.5rem; margin-bottom: 12px; }
-.empty-title { font-size: 1rem; font-weight: 700; color: var(--accent-green, var(--accent-green)); margin-bottom: 4px; }
+.empty-title { font-size: 1rem; font-weight: 700; color: var(--accent-green); margin-bottom: 4px; }
 .empty-desc { font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.6; }
 
 .todo-loading { padding: 12px 4px; }
@@ -861,7 +1048,6 @@ export default {
 .sk-todo span:nth-child(2) { width: 90%; }
 .sk-todo span:nth-child(3) { width: 70%; margin: auto 0; }
 .sk-todo span:nth-child(4) { grid-column: 2/3; width: 75%; height: 12px; }
-.sk-todo span:nth-child(5) { grid-column: 2/3; width: 60%; height: 12px; }
 @keyframes skeleton-shine {
   0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -869,8 +1055,6 @@ export default {
 
 .side-grid { display: flex; flex-direction: column; gap: 16px; }
 .side-card { padding: 22px 20px; }
-.more-link { font-size: 0.75rem; color: var(--primary); text-decoration: none; cursor: pointer; }
-.more-link:hover { color: var(--primary-dim); }
 
 .rank-list { display: flex; flex-direction: column; gap: 10px; }
 .rank-item {
@@ -927,7 +1111,7 @@ export default {
   animation: fadeIn 150ms ease;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.modal-card { width: 100%; max-width: 560px; padding: 0; overflow: hidden; animation: popIn 180ms ease; display: flex; flex-direction: column; }
+.modal-card { width: 100%; max-width: 560px; max-height: 85vh; padding: 0; overflow: hidden; animation: popIn 180ms ease; display: flex; flex-direction: column; }
 @keyframes popIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
 .modal-head {
   display: flex; justify-content: space-between; align-items: center;
@@ -942,7 +1126,7 @@ export default {
   transition: all var(--duration) var(--ease); font-family: inherit;
 }
 .modal-close:hover { background: rgba(255,255,255,0.05); border-color: var(--border-subtle); color: var(--text-primary); }
-.modal-body { padding: 20px 20px 24px; }
+.modal-body { padding: 20px 20px 24px; overflow-y: auto; flex: 1; min-height: 0; }
 .modal-foot { padding: 14px 20px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: flex-end; gap: 10px; }
 
 .placeholder-box { text-align: center; }
@@ -1053,6 +1237,9 @@ export default {
 }
 .btn-success:hover { filter: brightness(1.08); box-shadow: 0 4px 14px rgba(16,185,129,0.2); }
 .btn-success:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-warning { background: linear-gradient(135deg, #ffc107, #ff9800); color: #1a1a2e; border: 1px solid rgba(255,193,7,0.3); font-weight: 600; padding: 8px 20px; border-radius: var(--radius); cursor: pointer; font-family: inherit; font-size: 0.875rem; transition: all var(--duration) var(--ease); }
+.btn-warning:hover { filter: brightness(1.08); box-shadow: 0 4px 14px rgba(255,193,7,0.25); }
+.btn-warning:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .pagination {
   display: flex; justify-content: space-between; align-items: center;

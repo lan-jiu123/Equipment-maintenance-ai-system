@@ -1,8 +1,15 @@
 <template>
   <div class="container">
     <header class="page-header">
-      <h1 class="page-title">作业指导</h1>
-      <p class="page-desc">标准操作流程与安全规范 · 共 {{ filteredSteps.length }} 项作业规程 · 员工贡献 {{ employeeGuideCount }} 项</p>
+      <div class="page-header-left">
+        <h1 class="page-title">作业指导</h1>
+        <p class="page-desc">标准操作流程与安全规范 · 共 {{ filteredSteps.length }} 项作业规程 · 员工贡献 {{ employeeGuideCount }} 项</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-primary" @click="openContributeGuide">
+          <span class="btn-icon">+</span> 贡献指导
+        </button>
+      </div>
     </header>
 
     <div class="source-tabs">
@@ -52,6 +59,82 @@
         <div class="progress-count">{{ s.count }} 项</div>
       </div>
     </div>
+
+    <!-- 贡献表单弹窗（始终渲染，不受 Tab 影响） -->
+    <transition name="fade">
+      <div v-if="showContributeForm" class="modal-overlay" @click.self="closeContributeGuide">
+        <div class="modal-dialog guide-form-dialog">
+          <div class="modal-header">
+            <h3>贡献作业指导</h3>
+            <button class="modal-close" @click="closeContributeGuide">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-row">
+              <label>标题 <span class="required">*</span></label>
+              <input v-model="guideForm.title" class="form-input" placeholder="如：滚动轴承更换" />
+            </div>
+            <div class="form-row form-row-2">
+              <div>
+                <label>分类 <span class="required">*</span></label>
+                <select v-model="guideForm.device_type" class="form-input">
+                  <option value="机械">机械</option>
+                  <option value="电气">电气</option>
+                  <option value="液压">液压</option>
+                  <option value="仪表">仪表</option>
+                  <option value="安全">安全</option>
+                </select>
+              </div>
+              <div>
+                <label>难度</label>
+                <div class="star-picker">
+                  <span v-for="n in 5" :key="n" class="star" :class="{ active: n <= guideForm.difficulty }" @click="guideForm.difficulty = n">★</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-row form-row-2">
+              <div>
+                <label>预计耗时（分钟）</label>
+                <input v-model.number="guideForm.duration_min" type="number" min="5" class="form-input" placeholder="45" />
+              </div>
+              <div>
+                <label>适用设备</label>
+                <input v-model="guideForm.applicable_devices" class="form-input" placeholder="如：数控车床、离心泵" />
+              </div>
+            </div>
+            <div class="form-row">
+              <label>所需工具</label>
+              <div class="tag-input-wrap">
+                <span v-for="(t, ti) in guideForm.tools" :key="ti" class="tag tool-tag">
+                  {{ t }}<span class="tag-remove" @click="guideForm.tools.splice(ti, 1)">&times;</span>
+                </span>
+                <input v-model="toolInput" class="tag-input" placeholder="输入工具名按回车添加" @keydown.enter.prevent="addTool" />
+              </div>
+            </div>
+            <div class="form-row">
+              <label>操作步骤 <span class="form-hint">建议 5 条以上</span></label>
+              <div v-for="(s, si) in guideForm.steps" :key="si" class="step-input-row">
+                <span class="step-num">{{ si + 1 }}</span>
+                <input v-model="s.content" class="form-input" placeholder="步骤内容" />
+                <input v-model="s.tip" class="form-input step-tip" placeholder="提示（可选）" />
+                <button class="step-remove" @click="guideForm.steps.splice(si, 1)">&times;</button>
+              </div>
+              <button class="btn btn-outline btn-sm" @click="guideForm.steps.push({ content: '', tip: '' })">+ 添加步骤</button>
+            </div>
+            <div class="form-row">
+              <label>注意事项</label>
+              <textarea v-model="guideForm.risk_note" class="form-input" rows="3" placeholder="安全提示、风险注意事项"></textarea>
+            </div>
+            <div class="form-error" v-if="guideFormError">{{ guideFormError }}</div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline" @click="closeContributeGuide">取消</button>
+            <button class="btn btn-primary" @click="submitGuide" :disabled="guideFormSubmitting">
+              {{ guideFormSubmitting ? '提交中...' : '提交审核' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <template v-if="currentSource === 'mine'">
       <div v-if="loadingReports" class="skeleton-grid">
@@ -146,6 +229,27 @@
             <transition name="expand">
               <div v-show="step.open" class="step-body">
                 <p class="step-desc">{{ step.desc }}</p>
+
+                <!-- 指导概览：难度 / 耗时 / 适用设备 / 工具 -->
+                <div class="guide-meta">
+                  <span v-if="step.difficulty" class="meta-item meta-difficulty">
+                    <span class="meta-label">难度</span>
+                    <span class="meta-value difficulty-stars">{{ '★'.repeat(step.difficulty) }}{{ '☆'.repeat(5 - step.difficulty) }}</span>
+                  </span>
+                  <span v-if="step.estimate && step.estimate !== '—'" class="meta-item">
+                    <span class="meta-label">⏱ 预计</span>
+                    <span class="meta-value">{{ step.estimate }}</span>
+                  </span>
+                  <span v-if="step.applicableDevices" class="meta-item">
+                    <span class="meta-label">适用</span>
+                    <span class="meta-value">{{ step.applicableDevices }}</span>
+                  </span>
+                </div>
+                <div v-if="step.tools && step.tools.length" class="guide-tools">
+                  <span class="tools-label">所需工具：</span>
+                  <span class="tool-tag" v-for="(t, ti) in step.tools" :key="ti">{{ t }}</span>
+                </div>
+
                 <div class="step-checklist" v-if="step.checklist && step.checklist.length">
                   <div
                     v-for="(chk, ci) in step.checklist"
@@ -189,7 +293,7 @@
 </template>
 
 <script>
-import { listGuidesApi, listGuideTypesApi, listReportsApi } from '../utils/api'
+import { listGuidesApi, listGuideTypesApi, listReportsApi, submitReportApi } from '../utils/api'
 
 export default {
   name: 'Guide',
@@ -203,7 +307,21 @@ export default {
       myReports: [],
       loadingGuides: true,
       loadingTypes: true,
-      loadingReports: true
+      loadingReports: true,
+      showContributeForm: false,
+      guideFormSubmitting: false,
+      guideFormError: '',
+      toolInput: '',
+      guideForm: {
+        title: '',
+        device_type: '机械',
+        difficulty: 3,
+        duration_min: 30,
+        applicable_devices: '',
+        tools: [],
+        steps: [{ content: '', tip: '' }, { content: '', tip: '' }, { content: '', tip: '' }, { content: '', tip: '' }, { content: '', tip: '' }],
+        risk_note: ''
+      }
     }
   },
   async created() {
@@ -214,9 +332,9 @@ export default {
         listReportsApi({ page: 1, size: 20000, scope: 'mine' }).catch(e => ({ data: { list: [] } }))
       ])
 
-      const rawGuides = (guidesRes && guidesRes.data && guidesRes.data.list) || []
-      const rawTypes = (typesRes && typesRes.data) || []
-      const rawReports = (reportsRes && reportsRes.data && reportsRes.data.list) || []
+      const rawGuides = (guidesRes && guidesRes.items) || []
+      const rawTypes = (typesRes && typesRes.types) || []
+      const rawReports = (reportsRes && reportsRes.items) || []
 
       this.allGuides = rawGuides.map(g => this._convertGuide(g))
       this.myReports = rawReports.map(r => Object.assign({}, r, { _open: false }))
@@ -321,6 +439,9 @@ export default {
         checklist,
         warn: g.risk_note || '',
         estimate: g.duration_min ? g.duration_min + ' 分钟' : '—',
+        difficulty: g.difficulty || 0,
+        tools: g.tools || [],
+        applicableDevices: g.applicable_devices || '',
         refs: g.tag ? [g.tag] : [],
         _fromReport: !!g.is_employee_contribution,
         _userName: g.contributor_name || '',
@@ -357,24 +478,75 @@ export default {
         synced_case: '已入库案例'
       }
       return map[s] || (s || '未知')
+    },
+    async loadReports() {
+      try {
+        const reportsRes = await listReportsApi({ page: 1, size: 20000, scope: 'mine', type: 'guide' })
+        const rawReports = (reportsRes && reportsRes.items) || []
+        this.myReports = rawReports.map(r => Object.assign({}, r, { _open: false }))
+      } catch (e) {
+        // ignore
+      }
+    },
+    openContributeGuide() {
+      this.guideFormError = ''
+      this.showContributeForm = true
+    },
+    closeContributeGuide() {
+      this.showContributeForm = false
+    },
+    addTool() {
+      const v = (this.toolInput || '').trim()
+      if (v && !this.guideForm.tools.includes(v)) {
+        this.guideForm.tools.push(v)
+      }
+      this.toolInput = ''
+    },
+    async submitGuide() {
+      this.guideFormError = ''
+      if (!this.guideForm.title.trim()) {
+        this.guideFormError = '请输入标题'
+        return
+      }
+      const validSteps = this.guideForm.steps.filter(s => (s.content || '').trim())
+      if (validSteps.length === 0) {
+        this.guideFormError = '请至少填写一个操作步骤'
+        return
+      }
+      this.guideFormSubmitting = true
+      try {
+        const stepsStr = validSteps.map((s, i) => `步骤${i + 1}：(s.content)}${s.tip ? '（提示：' + s.tip + '）' : ''}`).join('\n')
+        await submitReportApi({
+          type: 'guide',
+          title: this.guideForm.title.trim(),
+          device: this.guideForm.applicable_devices.trim(),
+          tag: this.guideForm.device_type,
+          question: this.guideForm.applicable_devices.trim() || this.guideForm.title.trim(),
+          solution: stepsStr,
+          cause: this.guideForm.risk_note.trim(),
+          summary: this.guideForm.title.trim(),
+          level: this.guideForm.difficulty >= 4 ? 'high' : this.guideForm.difficulty >= 3 ? 'mid' : 'low'
+        })
+        window.dispatchEvent(new CustomEvent('equipai-toast', { detail: { text: '作业指导已提交，等待管理员审核', level: 'success' } }))
+        this.closeContributeGuide()
+        this.loadReports()
+      } catch (e) {
+        this.guideFormError = e.msg || e.message || '提交失败，请重试'
+      } finally {
+        this.guideFormSubmitting = false
+      }
     }
   }
 }
 </script>
 
 <style scoped>
-.page-header {
-  margin-bottom: 28px;
-}
-
-.page-title {
-  font-size: 1.75rem;
-  margin-bottom: 8px;
-}
-
-.page-desc {
-  color: var(--text-secondary);
-}
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 28px; flex-wrap: wrap; }
+.page-header-left { flex: 1; min-width: 0; }
+.page-title { font-size: 1.75rem; font-weight: 800; margin: 0; color: var(--text-primary); }
+.page-desc { font-size: 0.875rem; color: var(--text-secondary); margin-top: 6px; }
+.header-actions { display: flex; gap: 10px; flex-shrink: 0; }
+.btn-icon { font-size: 1rem; font-weight: 700; }
 
 .source-tabs {
   display: flex;
@@ -951,6 +1123,101 @@ export default {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
+
+/* 贡献按钮栏 */
+.contribute-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+/* 弹窗 */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2000; padding: 24px;
+}
+.modal-dialog {
+  width: 100%; max-width: 680px; max-height: 90vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: #171b29; border: 1px solid var(--border-active);
+  border-radius: var(--radius-lg);
+}
+.modal-header {
+  padding: 18px 24px; display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.modal-header h3 { margin: 0; font-size: 1.0625rem; color: var(--text-primary); }
+.modal-close {
+  background: none; border: none; font-size: 1.5rem; color: var(--text-muted);
+  cursor: pointer; padding: 0 4px;
+}
+.modal-close:hover { color: var(--accent-red); }
+.modal-body {
+  padding: 20px 24px; overflow-y: auto; flex: 1;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.modal-footer {
+  padding: 14px 24px; display: flex; justify-content: flex-end; gap: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* 表单 */
+.form-row { display: flex; flex-direction: column; gap: 6px; }
+.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-row label { font-size: 0.8125rem; color: var(--text-secondary); font-weight: 500; }
+.form-hint { color: var(--text-muted); font-weight: 400; font-size: 0.75rem; }
+.required { color: var(--accent-red); }
+.form-input {
+  width: 100%; background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius);
+  color: #fff; padding: 9px 12px; font-family: inherit;
+  font-size: 0.875rem; transition: all var(--duration) var(--ease); box-sizing: border-box;
+}
+.form-input option { background: #171b29; color: #fff; }
+.form-input:focus { outline: none; border-color: var(--primary); background: rgba(37,99,235,0.04); }
+textarea.form-input { resize: vertical; }
+
+/* 星级选择 */
+.star-picker { display: flex; gap: 4px; }
+.star {
+  font-size: 1.25rem; color: var(--text-muted); cursor: pointer; transition: color 0.15s;
+}
+.star.active { color: var(--accent-orange); }
+.star:hover { color: var(--accent-orange); }
+
+/* 工具标签输入 */
+.tag-input-wrap {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 10px;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); min-height: 40px; align-items: center;
+}
+.tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; }
+.tool-tag { background: rgba(37,99,235,0.1); color: var(--primary); }
+.tag-remove { cursor: pointer; font-size: 0.875rem; opacity: 0.6; }
+.tag-remove:hover { opacity: 1; }
+.tag-input {
+  flex: 1; min-width: 120px; background: none; border: none; outline: none;
+  color: var(--text-primary); font-size: 0.875rem; padding: 4px 0;
+}
+
+/* 步骤输入 */
+.step-input-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.step-num {
+  width: 24px; height: 24px; border-radius: 50%; background: var(--primary);
+  color: #fff; font-size: 0.75rem; display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0; font-weight: 600;
+}
+.step-tip { flex: 0.8; }
+.step-remove {
+  width: 28px; height: 28px; border-radius: var(--radius); border: 1px solid var(--border-subtle);
+  background: transparent; color: var(--text-muted); cursor: pointer; font-size: 1rem;
+}
+.step-remove:hover { color: var(--accent-red); border-color: var(--accent-red); }
+.btn-sm { padding: 6px 14px; font-size: 0.8125rem; }
+
+.form-error { color: var(--accent-red); font-size: 0.8125rem; padding: 8px 0; }
+
 .case-contributor {
   margin-top: 10px;
   padding-top: 10px;
@@ -1042,5 +1309,62 @@ export default {
   .expand-arrow {
     grid-column: span 1;
   }
+}
+
+/* 作业指导概览：难度 / 耗时 / 适用设备 */
+.guide-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin: 10px 0 8px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--primary);
+}
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+}
+.meta-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.meta-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.difficulty-stars {
+  color: var(--accent-orange);
+  letter-spacing: 2px;
+  font-size: 0.8125rem;
+}
+
+/* 所需工具 */
+.guide-tools {
+  margin: 6px 0 12px;
+  padding: 8px 14px;
+  background: rgba(37, 99, 235, 0.04);
+  border-radius: var(--radius);
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+.tools-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  margin-right: 4px;
+}
+.tool-tag {
+  display: inline-block;
+  font-size: 0.6875rem;
+  padding: 2px 8px;
+  margin: 2px 3px 2px 0;
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary);
+  border-radius: 3px;
+  font-weight: 500;
 }
 </style>

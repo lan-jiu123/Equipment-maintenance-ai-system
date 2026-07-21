@@ -88,6 +88,16 @@ export async function listDeviceTagsApi() {
   return request('/api/devices/tags')
 }
 
+// 设备故障附件下载 URL（直接拼路径，供 a 标签 href 使用）
+export function downloadDeviceFaultAttachUrl(deviceId, attachId) {
+  return `/api/devices/${deviceId}/fault-attachments/${attachId}`
+}
+
+// 删除设备故障附件
+export async function deleteDeviceFaultAttachApi(deviceId, attachId) {
+  return request(`/api/devices/${deviceId}/fault-attachments/${attachId}`, { method: 'DELETE' })
+}
+
 // ======================================================
 // 工单管理
 // ======================================================
@@ -109,10 +119,12 @@ export async function getTicketApi(id) {
   return request('/api/tickets/' + id)
 }
 
-export async function assignTicketApi(id, assignee_id, remark) {
+export async function assignTicketApi(id, assignee_id, remark, level) {
+  const data = { assignee_id, remark }
+  if (level) data.level = level
   return request(`/api/tickets/${id}/assign`, {
     method: 'POST',
-    data: { assignee_id, remark }
+    data
   })
 }
 
@@ -129,6 +141,57 @@ export async function completeTicketApi(id, solution) {
 
 export async function markTicketOverdueApi(id) {
   return request(`/api/tickets/${id}/mark_overdue`, { method: 'POST' })
+}
+
+export async function deleteTicketApi(id) {
+  return request(`/api/tickets/${id}`, { method: 'DELETE' })
+}
+
+export async function approveTicketApi(id) {
+  return request(`/api/tickets/${id}/approve`, { method: 'POST' })
+}
+
+export async function rejectTicketApi(id) {
+  return request(`/api/tickets/${id}/reject`, { method: 'POST' })
+}
+
+export async function reportFaultApi(form, files) {
+  const fd = new FormData()
+  fd.append('device_id', form.device_id || '')
+  fd.append('code', form.code || '')
+  fd.append('name', form.name || '')
+  fd.append('tag', form.tag || '机械')
+  fd.append('location', form.location || '')
+  fd.append('spec', form.spec || '')
+  fd.append('desc', form.desc || '')
+  for (const f of files) {
+    // 借鉴智能检索：用 new File() 重建对象，避免 Vue 2 响应式包装破坏原生 File 的二进制结构
+    const blob = f instanceof File ? f.slice(0, f.size, f.type || 'application/octet-stream') : f
+    const rebuilt = new File([blob], f.name || 'upload', {
+      type: f.type || 'application/octet-stream',
+      lastModified: f.lastModified || Date.now(),
+    })
+    fd.append('files', rebuilt, rebuilt.name)
+  }
+  return request('/api/devices/report-fault', { method: 'POST', data: fd })
+}
+
+export async function uploadAttachmentApi(ticketId, file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return request(`/api/tickets/${ticketId}/attachments`, { method: 'POST', data: fd })
+}
+
+export async function listAttachmentsApi(ticketId) {
+  return request(`/api/tickets/${ticketId}/attachments`)
+}
+
+export async function deleteAttachmentApi(ticketId, attachmentId) {
+  return request(`/api/tickets/${ticketId}/attachments/${attachmentId}`, { method: 'DELETE' })
+}
+
+export function downloadAttachmentUrl(attachmentId) {
+  return `/api/attachments/${attachmentId}`
 }
 
 // ======================================================
@@ -151,10 +214,10 @@ export async function getReportApi(id) {
   return request('/api/reports/' + id)
 }
 
-export async function reviewReportApi(id, action, review_remark = '') {
+export async function reviewReportApi(id, action, remark = '') {
   return request(`/api/reports/${id}/review`, {
     method: 'POST',
-    data: { action, review_remark }
+    data: { action, remark }
   })
 }
 

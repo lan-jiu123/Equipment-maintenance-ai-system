@@ -18,7 +18,7 @@ from typing import Any, List, Optional
 
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, status, Depends, HTTPException
+from fastapi import FastAPI, Request, status, Depends, HTTPException, Body
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -32,11 +32,40 @@ def _utcnow():
     return datetime.now(timezone.utc)
 
 # ===== 配置 =====
-from .config import settings
-from .database import Base, engine, get_db
+# 显式加载 .env（修复 pydantic-settings 读 UTF-8 BOM 编码 .env 失败导致 key_len=0 的问题）
+_load_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+if _load_env_path.is_file():
+    load_dotenv(str(_load_env_path), override=True)
+del _load_env_path
+
+from .config import settings as _settings
+import typing
+
+# pydantic-settings 解析 UTF-8 BOM 的 .env 失败 → 强制从 os.environ 回读
+settings = _settings
+for _fld in ("QWEN_API_KEY", "QWEN_TEXT_MODEL", "QWEN_VISION_MODEL",
+             "LONGCAT_API_KEY", "LONGCAT_MODEL", "QWEN_API_URL", "LONGCAT_API_URL"):
+    _env_val = os.getenv(_fld)
+    if _env_val and not getattr(settings, _fld, None):
+        try:
+            setattr(settings, _fld, _env_val)
+        except Exception:
+            pass
+del _settings, _fld, _env_val
+from .database import Base, engine, get_db, init_database
 from .models import User, Device, Ticket, KnowledgeReport, Case, Guide, Notification, \
+    TicketAttachment, DeviceFaultAttachment, \
     NOTIFY_TYPE_REPORT_SUBMITTED, NOTIFY_TYPE_REPORT_APPROVED, NOTIFY_TYPE_REPORT_REJECTED, \
-    NOTIFY_TYPE_REPORT_SYNCED, NOTIFY_TYPE_TICKET_ASSIGNED, NOTIFY_TYPE_SYSTEM
+    NOTIFY_TYPE_REPORT_SYNCED, NOTIFY_TYPE_TICKET_ASSIGNED, NOTIFY_TYPE_TICKET_CREATED, \
+    NOTIFY_TYPE_DEVICE_FAULT, NOTIFY_TYPE_SYSTEM, \
+    DEVICE_STATUS_NORMAL, DEVICE_STATUS_REPAIRING, DEVICE_STATUS_DOWN
+# ===== 模型接入：RAG 路由 + 内置知识导入 =====
+from .services.knowledge_bootstrap import bootstrap_builtin_knowledge
+from .services.knowledge_graph import save_case, build_graph_from_db
+from .routers.documents import router as documents_router
+from .routers.search import router as search_router
+from .routers.rag import router as rag_router
+from .routers.images import router as images_router
 
 # ===== 鉴权 + DTO =====
 from .auth import (
@@ -121,6 +150,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ===== 模型接入：注册 4 个 RAG 路由（文档 / 检索 / RAG问答 / 多模态图片） =====
+app.include_router(documents_router)
+app.include_router(search_router)
+app.include_router(rag_router)
+app.include_router(images_router)
+
 
 # ============================================================
 # LLM 上下文（双模式：SDK 或 requests）
@@ -128,16 +163,30 @@ app.add_middleware(
 LLM_BACKEND = settings.LLM_BACKEND
 
 
+def _resolve_qwen_key():
+    """优先从 os.environ 读取，绕开 pydantic-settings 解析 UTF-8 BOM .env 失败的问题。"""
+    return os.getenv("QWEN_API_KEY") or settings.QWEN_API_KEY or ""
+
+
 def _build_llm_ctx():
     if LLM_BACKEND == "ollama":
         base_url = settings.OLLAMA_API_URL or "http://localhost:11434/v1"
         api_key = "ollama"
         model = settings.OLLAMA_MODEL or "qwen2.5:7b"
+    elif _resolve_qwen_key() or LLM_BACKEND == "qwen":
+        api_key = _resolve_qwen_key()
+        model = settings.QWEN_TEXT_MODEL or settings.QWEN_MODEL or "qwen-plus"
+        # 百炼域名区分国内 / 海外，通过域名自动补齐兼容前缀
+        raw = (settings.QWEN_API_URL or "https://dashscope.aliyuncs.com/compatible-mode/v1").rstrip("/")
+        if "dashscope.aliyuncs.com" in raw and "/compatible-mode" not in raw:
+            base_url = raw + "/compatible-mode/v1"
+        else:
+            base_url = raw
     else:
         base_url = settings.LONGCAT_API_URL or "https://api.longcat.chat/openai"
         if not base_url.endswith("/v1"):
             base_url = base_url.rstrip("/") + "/v1"
-        api_key = settings.LONGCAT_API_KEY or ""
+        api_key = os.getenv("LONGCAT_API_KEY") or settings.LONGCAT_API_KEY or ""
         model = settings.LONGCAT_MODEL or "longcat-2.0"
     temperature = settings.LLM_TEMPERATURE or 0.3
     return base_url, api_key, model, temperature
@@ -154,7 +203,7 @@ if _HAS_OPENAI_SDK and OpenAI is not None:
 
 
 # ============================================================
-# 生命周期：启动建表 + 空库自动 seed
+# 生命周期：启动建表 + 空库自动 seed + RAG 知识库初始化
 # ============================================================
 @app.on_event("startup")
 def _on_startup():
@@ -169,6 +218,9 @@ def _on_startup():
         seed_if_empty(db)
     finally:
         db.close()
+    # 4. 模型接入：RAG 知识库表初始化 + 内置知识文档自动导入（幂等）
+    init_database()
+    app.state.knowledge_bootstrap = bootstrap_builtin_knowledge()
 
 
 _PROFILE_COLS = {
@@ -216,18 +268,22 @@ def readiness():
         checks["db"] = db.execute("SELECT 1").scalar() == 1
     except Exception:
         checks["db"] = False
-    # LLM
+    # LLM（兼容 LongCat / Ollama / QWEN 三个后端）
     try:
         if LLM_BACKEND == "ollama":
             base = (settings.OLLAMA_API_URL or "http://localhost:11434/v1").rstrip("/").replace("/v1", "")
             resp = requests.get(f"{base}/api/tags", timeout=5)
             checks["llm"] = resp.status_code == 200
         else:
-            checks["llm"] = bool(settings.LONGCAT_API_KEY)
+            checks["llm"] = bool(os.getenv("QWEN_API_KEY") or os.getenv("LONGCAT_API_KEY") or settings.QWEN_API_KEY or settings.LONGCAT_API_KEY)
     except Exception:
         checks["llm"] = False
     all_ready = all(v for k, v in checks.items() if k != "time")
-    return {"status": "ready" if all_ready else "not_ready", "checks": checks}
+    return {
+        "status": "ready" if all_ready else "not_ready",
+        "checks": checks,
+        "knowledge_bootstrap": getattr(app.state, "knowledge_bootstrap", None),
+    }
 
 
 # ============================================================
@@ -331,10 +387,27 @@ def _admin_ids(db: Session) -> list[int]:
     return [r[0] for r in rows]
 
 
+def _map_device_status(s: str) -> str:
+    """中文状态 → 代码"""
+    s = (s or '').strip()
+    if s in ('down', 'repairing', 'normal'):
+        return s
+    if '停机' in s or '故障' in s or '损坏' in s:
+        return 'down'
+    if '维修' in s or '检修' in s:
+        return 'repairing'
+    if '正常' in s or '运行' in s:
+        return 'normal'
+    return 'down'
+
+
 def _ts(dt) -> int | None:
     if dt is None:
         return None
     try:
+        if dt.tzinfo is None:
+            import calendar
+            return int(calendar.timegm(dt.timetuple()))
         return int(dt.timestamp())
     except Exception:
         return None
@@ -412,46 +485,6 @@ def login(form: LoginReq, db: Session = Depends(get_db)):
             new_user = db.query(User).filter(User.username == username).first()
             if not new_user:
                 return fail("账号或密码错误", 401)
-        # —— 维修工看板兜底：新创建的 worker 或还没工单的 worker，分配一批工单保证看板不为空 ——
-        if new_user.role == ROLE_WORKER:
-            my_assigned = db.query(Ticket).filter(Ticket.assignee_id == new_user.id).count()
-            if my_assigned == 0 or _newly_created:
-                uid = new_user.id
-                # (a) 接单池：把若干条未派单的 pending 派给该用户，并改为 doing
-                pending_ids = [r[0] for r in db.query(Ticket.id)
-                               .filter(Ticket.status == "pending", Ticket.assignee_id.is_(None))
-                               .order_by(Ticket.submit_time.desc()).limit(3).all()]
-                if pending_ids:
-                    db.query(Ticket).filter(Ticket.id.in_(pending_ids)).update(
-                        {Ticket.assignee_id: uid, Ticket.status: "doing"},
-                        synchronize_session=False
-                    )
-                # (b) 进行中：从已有 doing 工单中随机抽几条转派（不影响总数，只是增加新用户看板数据）
-                from sqlalchemy import func as _sf
-                doing_rows = db.query(Ticket.id).filter(
-                    Ticket.status == "doing",
-                    Ticket.assignee_id.isnot(None),
-                    Ticket.assignee_id != uid,
-                ).order_by(_sf.random()).limit(4).all()
-                doing_ids = [r[0] for r in doing_rows]
-                if doing_ids:
-                    db.query(Ticket).filter(Ticket.id.in_(doing_ids)).update(
-                        {Ticket.assignee_id: uid},
-                        synchronize_session=False
-                    )
-                # (c) 已完成 / 超时：done + over 抽 8 条转派，保证"本月已完成"等统计不为 0
-                done_rows = db.query(Ticket.id).filter(
-                    Ticket.status.in_(["done", "over"]),
-                    Ticket.assignee_id.isnot(None),
-                    Ticket.assignee_id != uid,
-                ).order_by(_sf.random()).limit(8).all()
-                done_ids = [r[0] for r in done_rows]
-                if done_ids:
-                    db.query(Ticket).filter(Ticket.id.in_(done_ids)).update(
-                        {Ticket.assignee_id: uid},
-                        synchronize_session=False
-                    )
-                db.commit()
         token, hours = create_access_token(new_user.username, new_user.role)
         return ok(LoginResp(token=token, token_type="bearer", expires_hours=hours, user=_to_userinfo(new_user)))
 
@@ -548,10 +581,10 @@ def dashboard_overview(
         {"name": "维修中",   "value": data["devices"]["repair"],  "color": "#06b6d4"},
         {"name": "故障停机", "value": data["devices"]["down"],    "color": "#ef4444"},
     ]
-    # 折线图：最近 7 天新增工单数（按本地时区对齐）
+    # 折线图：近 30 天新增工单数 + 去年同期对比（各 30 天，共 60 天）
     now_local = datetime.now()
     trend = []
-    for i in range(6, -1, -1):
+    for i in range(29, -1, -1):
         day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=i)
         day_end = day_start + timedelta(days=1)
         t_label = f"{day_start.month}/{day_start.day}"
@@ -561,6 +594,19 @@ def dashboard_overview(
         ).count()
         trend.append({"label": t_label, "v": day_tickets})
     data["trend"] = trend
+
+    # 前 30 天同期对比（再往前 30 天），用于折线图叠加对比
+    trend_prev = []
+    for i in range(59, 29, -1):
+        day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=i)
+        day_end = day_start + timedelta(days=1)
+        t_label = f"{day_start.month}/{day_start.day}"
+        day_tickets = db.query(Ticket).filter(
+            Ticket.submit_time >= day_start.astimezone(timezone.utc),
+            Ticket.submit_time < day_end.astimezone(timezone.utc),
+        ).count()
+        trend_prev.append({"label": t_label, "v": day_tickets})
+    data["trend_prev"] = trend_prev
 
     # 最近事件（home 首页时间线替代）—— 工单+报告混合，≤10 条
     events: list[dict] = []
@@ -662,7 +708,7 @@ def ai_ask(req: AIRequest,
             lines.append("（暂无匹配的内部知识库条目，请联系维修管理员处理，并建议在 AI 回答后提交您的实践方案）")
         lines.extend(["", "【处理步骤】", "1. 停机断电挂安全锁，挂牌；",
                       "2. 按设备 SOP 排查上述可能原因；",
-                      "3. 如需 AI 深度分析，请确保服务器联网并配置 LONGCAT_API_KEY；",
+                      "3. 如需 AI 深度分析，请确保服务器联网并在 .env 中配置 LLM_BACKEND 对应的 API Key；",
                       "4. 排查完成后填写工单并考虑将方案贡献入知识库。",
                       "", "【风险提示】",
                       "• 本回答来自本地知识库，未经过 LLM 优化；",
@@ -699,10 +745,13 @@ def hello():
 
 # ---------- 通用小工具 ----------
 def _ts(dt) -> Optional[int]:
-    """datetime → 秒级时间戳，None 安全"""
+    """datetime → 秒级时间戳，None 安全；naive 按 UTC 处理"""
     if dt is None:
         return None
     try:
+        if dt.tzinfo is None:
+            import calendar
+            return int(calendar.timegm(dt.timetuple()))
         return int(dt.timestamp())
     except Exception:
         return None
@@ -719,12 +768,14 @@ TICKET_STATUS_LABELS = {
     "doing": "进行中",
     "done": "已完成",
     "over": "超时",
+    "cancelled": "已驳回",
 }
 
 TICKET_LEVEL_LABELS = {
     "low": "低",
     "mid": "中",
     "high": "高",
+    "critical": "高",
 }
 
 REPORT_STATUS_LABELS = {
@@ -744,12 +795,58 @@ SOURCE_LABELS = {
 TYPE_LABELS = {"case": "案例", "guide": "作业指导"}
 
 
-def _to_device_info(d: Device) -> DeviceInfo:
+def _load_fault_data(db: Session, devices: list[Device]):
+    """批量预加载故障上报信息，返回 (reporters_map, attachments_map)"""
+    reporters, attachments = {}, {}
+    down = [d for d in devices if d.status == DEVICE_STATUS_DOWN]
+    if not down:
+        return reporters, attachments
+    reporter_ids = {d.fault_reporter_id for d in down if d.fault_reporter_id}
+    if reporter_ids:
+        reps = db.query(User.id, User.fullname, User.username) \
+                 .filter(User.id.in_(reporter_ids)).all()
+        reporters = {r[0]: (r[1] or r[2]) for r in reps}
+    atts = db.query(DeviceFaultAttachment).filter(
+        DeviceFaultAttachment.device_id.in_([d.id for d in down])).all()
+    for a in atts:
+        attachments.setdefault(a.device_id, []).append(a)
+    return reporters, attachments
+
+
+def _to_device_info(d: Device, db: Session,
+                    _fault_reporters: dict = None,
+                    _fault_attachments: dict = None) -> DeviceInfo:
+    health = 100
+    if d.status == DEVICE_STATUS_REPAIRING:
+        health = 50
+    elif d.status == DEVICE_STATUS_DOWN:
+        health = 0
+    # 故障停机时附带故障上报信息（从预加载映射中取，避免 N+1 查询）
+    fault_desc = None
+    fault_reporter_name = None
+    fault_time_ts = None
+    fault_attachments = None
+    if d.status == DEVICE_STATUS_DOWN:
+        fault_desc = d.fault_desc
+        if _fault_reporters is not None:
+            fault_reporter_name = _fault_reporters.get(d.fault_reporter_id)
+        fault_time_ts = _ts(d.fault_time)
+        if _fault_attachments is not None:
+            fas = _fault_attachments.get(d.id, [])
+            fault_attachments = [
+                {"id": a.id, "filename": a.filename, "size": a.file_size,
+                 "mime_type": a.mime_type, "uploaded_at_ts": _ts(a.uploaded_at)}
+                for a in fas]
     return DeviceInfo(
         id=d.id, code=d.code, name=d.name, tag=d.tag or "机械",
         location=d.location, status=d.status,
         status_label=DEVICE_STATUS_LABELS.get(d.status, d.status),
+        health=health,
         last_repair_at=d.last_repair_at,
+        fault_desc=fault_desc,
+        fault_reporter_name=fault_reporter_name,
+        fault_time_ts=fault_time_ts,
+        fault_attachments=fault_attachments,
     )
 
 
@@ -777,7 +874,9 @@ def _to_report_info(r: KnowledgeReport) -> ReportInfo:
     return ReportInfo(
         id=r.id, rid=r.rid, title=r.title, device=r.device,
         type=r.type, source=r.source, level=r.level, tag=r.tag,
-        question=r.question, cause=r.cause, solution=r.solution, summary=r.summary,
+        question=r.question, cause=r.cause, solution=r.solution,
+        repair_process=r.repair_process, technical_measures=r.technical_measures,
+        repair_result=r.repair_result, summary=r.summary,
         status=r.status, status_label=REPORT_STATUS_LABELS.get(r.status, r.status),
         submitter_id=r.submitter_id, submitter_name=r.submitter_name,
         submit_time_ts=_ts(r.submit_time),
@@ -810,13 +909,26 @@ def _parse_guide_steps(raw: Optional[str]) -> List[GuideStep]:
         return []
 
 
+def _parse_tools(raw: Optional[str]) -> List[str]:
+    if not raw:
+        return []
+    try:
+        arr = json.loads(raw)
+        return [str(t) for t in arr] if isinstance(arr, list) else []
+    except Exception:
+        return []
+
+
 def _to_guide_info(g: Guide) -> GuideInfo:
     steps = _parse_guide_steps(g.steps_json)
+    tools = _parse_tools(g.tools_json)
     contrib = bool(g.source_report_id or g.contributor_name)
     return GuideInfo(
         id=g.id, title=g.title, device_type=g.device_type, tag=g.tag,
         steps=steps, steps_json=g.steps_json, risk_note=g.risk_note,
-        duration_min=g.duration_min, contributor_name=g.contributor_name,
+        duration_min=g.duration_min, difficulty=g.difficulty,
+        tools=tools, applicable_devices=g.applicable_devices,
+        contributor_name=g.contributor_name,
         is_employee_contribution=contrib,
         created_at_ts=_ts(g.created_at),
     )
@@ -858,9 +970,11 @@ def list_devices(
             Device.location.ilike(kw),
         ))
     total = q.count()
-    items = [_to_device_info(d) for d in
-             q.order_by(Device.tag.asc(), Device.code.asc())
-             .offset((page - 1) * size).limit(size).all()]
+    devices = q.order_by(Device.tag.asc(), Device.code.asc()) \
+                .offset((page - 1) * size).limit(size).all()
+    # 批量预加载故障上报信息，避免 N+1 查询
+    _fault_reporters, _fault_attachments = _load_fault_data(db, devices)
+    items = [_to_device_info(d, db, _fault_reporters, _fault_attachments) for d in devices]
     return ok(page_wrap(page, size, total, items))
 
 
@@ -891,7 +1005,8 @@ def get_device(device_id: int, current: User = Depends(get_current_user),
     d = db.query(Device).filter(Device.id == device_id).first()
     if not d:
         return fail("设备不存在", 404)
-    return ok(_to_device_info(d))
+    _reporters, _attachments = _load_fault_data(db, [d])
+    return ok(_to_device_info(d, db, _reporters, _attachments))
 
 
 
@@ -908,7 +1023,7 @@ def create_device(form: DeviceCreate, current: User = Depends(get_current_user),
         status=form.status or "normal",
     )
     db.add(d); db.commit(); db.refresh(d)
-    return ok(_to_device_info(d), "设备创建成功")
+    return ok(_to_device_info(d, db), "设备创建成功")
 
 
 @app.put("/api/devices/{device_id}", response_model=ApiResp[DeviceInfo])
@@ -930,7 +1045,7 @@ def update_device(device_id: int, form: DeviceUpdate,
         if form.status in ("repairing", "down"):
             d.last_repair_at = _utcnow()
     db.commit(); db.refresh(d)
-    return ok(_to_device_info(d), "设备信息已更新")
+    return ok(_to_device_info(d, db), "设备信息已更新")
 
 
 @app.delete("/api/devices/{device_id}", response_model=ApiResp)
@@ -940,6 +1055,12 @@ def delete_device(device_id: int, current: User = Depends(get_current_user),
     d = db.query(Device).filter(Device.id == device_id).first()
     if not d:
         return fail("设备不存在", 404)
+    # 清理故障附件物理文件（DB 记录由 relationship cascade 级联删除）
+    for att in (d.fault_attachments or []):
+        try:
+            Path(att.file_path).unlink(missing_ok=True)
+        except Exception:
+            pass
     db.delete(d); db.commit()
     return ok(None, "设备已删除")
 
@@ -1003,22 +1124,36 @@ def create_ticket(form: TicketCreate, current: User = Depends(get_current_user),
         if d:
             dev_name = f"{d.code} {d.name}"
     now = _utcnow()
-    code = f"TK-{now.strftime('%Y%m%d')}-{db.query(Ticket).count() + 1:03d}"
+    existing_codes = [r[0] for r in db.query(Ticket.code).filter(Ticket.code.like(f'TK-{now.strftime("%Y%m%d")}-%')).all()]
+    seq = len(existing_codes) + 1
+    while f"TK-{now.strftime('%Y%m%d')}-{seq:03d}" in existing_codes:
+        seq += 1
+    code = f"TK-{now.strftime('%Y%m%d')}-{seq:03d}"
     status = "pending"
     assignee_id = form.assignee_id
     if assignee_id:
         u = db.query(User).filter(User.id == assignee_id).first()
         if not u or u.role not in (ROLE_WORKER, ROLE_MANAGER, ROLE_SYSADMIN):
             return fail("派单目标用户不存在或不是维修人员", 400)
-        status = "doing"
     t = Ticket(
         code=code, title=form.title.strip(),
         device_id=form.device_id, device_name=dev_name,
         level=form.level or "mid", status=status,
         submitter_id=current.id, assignee_id=assignee_id,
-        problem=form.problem.strip(),
+        problem=form.problem.strip(), submit_time=now,
     )
     db.add(t); db.commit(); db.refresh(t)
+
+    # 通知管理员有新工单待处理
+    admins = db.query(User).filter(User.role.in_(["sysadmin", "manager"])).all()
+    _push_notify(
+        db, user_ids=[a.id for a in admins],
+        type=NOTIFY_TYPE_TICKET_CREATED,
+        title=f"🎫 新工单待处理：{form.title.strip()}",
+        content=f"提交人：{current.fullname or current.username}，设备：{dev_name}，等级：{form.level or 'mid'}",
+        related_id=t.id,
+    )
+
     return ok(_to_ticket_info(t, db), "工单创建成功" + ("并已派单" if assignee_id else "，等待派单"))
 
 
@@ -1036,9 +1171,16 @@ def assign_ticket(ticket_id: int, form: TicketAssign,
     if not u:
         return fail("目标维修员不存在", 400)
     t.assignee_id = u.id
-    if t.status == "pending":
-        t.status = "doing"
+    if form.level and form.level in ("low", "mid", "high"):
+        t.level = form.level
     db.commit(); db.refresh(t)
+    _push_notify(
+        db, user_ids=[u.id],
+        type=NOTIFY_TYPE_TICKET_ASSIGNED,
+        title=f"🎫 新工单已派发给您",
+        content=f"管理员【{current.fullname}】将工单《{t.title}》派发给您，请及时处理。",
+        related_id=t.id,
+    )
     return ok(_to_ticket_info(t, db), f"已派单给 {u.fullname}")
 
 
@@ -1088,6 +1230,223 @@ def mark_ticket_overdue(ticket_id: int, current: User = Depends(get_current_user
     t.status = "over"
     db.commit(); db.refresh(t)
     return ok(_to_ticket_info(t, db), "已标记为超时工单")
+
+
+@app.delete("/api/tickets/{ticket_id}", response_model=ApiResp)
+def delete_ticket(ticket_id: int, current: User = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    require_admin(current)
+    t = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not t:
+        return fail("工单不存在", 404)
+    db.delete(t)
+    db.commit()
+    return ok(None, "工单已删除")
+
+
+
+
+# ============================================================
+# 工单附件 API
+# ============================================================
+import os
+import uuid
+from pathlib import Path
+from fastapi import File, Form, UploadFile
+from fastapi.responses import FileResponse
+
+ATTACHMENT_DIR = Path(__file__).resolve().parent.parent / "data" / "attachments"
+ATTACHMENT_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_ATTACH_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
+MAX_ATTACH_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+@app.post("/api/devices/report-fault", response_model=ApiResp)
+async def report_device_fault(device_id: Optional[str] = Form(None),
+                              code: str = Form(""), name: str = Form(""),
+                              tag: str = Form("机械"), location: str = Form(""),
+                              spec: str = Form(""),
+                              desc: str = Form(...),
+                              files: list[UploadFile] = File(default=[]),
+                              current: User = Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    try:
+        if not name.strip():
+            return fail("请填写设备名称", 400)
+        # 已有设备
+        if device_id and device_id != "__other__":
+            dev = db.query(Device).filter(Device.id == int(device_id)).first()
+            if not dev:
+                return fail("设备不存在", 404)
+            dev.status = DEVICE_STATUS_DOWN
+            dev.fault_desc = desc.strip()[:2000]
+            dev.fault_reporter_id = current.id
+            dev.fault_time = _utcnow()
+        else:
+            # 手动输入新设备（code 用 uuid 避免同秒重复提交冲突）
+            dev = Device(code=code.strip() or f"MANUAL-{uuid.uuid4().hex[:10].upper()}",
+                         name=name.strip(), tag=tag, location=location.strip(),
+                         spec=spec.strip(), status=DEVICE_STATUS_DOWN,
+                         fault_desc=desc.strip()[:2000], fault_reporter_id=current.id, fault_time=_utcnow())
+            db.add(dev); db.flush()
+        db.commit(); db.refresh(dev)
+        # 处理多附件（写入设备故障附件表，避免外键错配 tickets.id）
+        attach_list = []
+        for file in files:
+            if not file.filename:
+                continue
+            mime = (file.content_type or "").lower()
+            if mime not in ALLOWED_ATTACH_TYPES:
+                continue
+            content = await file.read(MAX_ATTACH_SIZE + 1)
+            await file.close()
+            if len(content) > MAX_ATTACH_SIZE or not content:
+                continue
+            orig_name = file.filename or "upload"
+            suffix = Path(orig_name).suffix.lower()
+            if suffix not in (".jpg", ".jpeg", ".png", ".webp", ".pdf"):
+                suffix = ""
+            safe_name = f"{uuid.uuid4().hex}{suffix}"
+            save_path = ATTACHMENT_DIR / safe_name
+            with open(save_path, "wb") as f:
+                f.write(content)
+            att = DeviceFaultAttachment(device_id=dev.id, filename=orig_name[:255],
+                                        file_path=str(save_path), file_size=len(content), mime_type=mime)
+            db.add(att)
+            attach_list.append({"filename": att.filename, "size": att.file_size})
+        db.commit()
+        # 通知管理员
+        admins = db.query(User).filter(User.role.in_([ROLE_SYSADMIN, ROLE_MANAGER])).all()
+        _push_notify(db, user_ids=[a.id for a in admins], type=NOTIFY_TYPE_DEVICE_FAULT,
+                     title=f"⚠️ 设备故障上报：{dev.code} {dev.name}",
+                     content=f"上报人：{current.fullname or current.username}，描述：{desc[:100]}",
+                     related_id=dev.id)
+        return ok({"device_id": dev.id, "status": dev.status, "attachments": attach_list},
+                  "故障已上报，已通知管理员")
+    except Exception as e:
+        db.rollback()
+        return fail(f"上报失败：{str(e)[:200]}", 400)
+
+
+@app.post("/api/tickets/{ticket_id}/attachments", response_model=ApiResp)
+async def upload_attachment(ticket_id: int, file: UploadFile = File(...),
+                      current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not t:
+        return fail("工单不存在", 404)
+    # 权限：仅提交人或管理员可上传
+    if current.id != t.submitter_id and current.role not in ("sysadmin", "manager"):
+        return fail("无权操作此工单", 403)
+    # 文件类型校验
+    mime = (file.content_type or "").lower()
+    if mime not in ALLOWED_ATTACH_TYPES:
+        return fail("仅支持 JPG/PNG/WebP/PDF 文件", 400)
+    # 文件大小校验
+    content = await file.read(MAX_ATTACH_SIZE + 1)
+    await file.close()
+    if len(content) > MAX_ATTACH_SIZE:
+        return fail(f"文件不能超过 {MAX_ATTACH_SIZE // 1024 // 1024}MB", 413)
+    if not content:
+        return fail("上传文件为空", 400)
+    # UUID 命名 + 保留原始后缀
+    orig_name = file.filename or "upload"
+    suffix = Path(orig_name).suffix.lower()
+    if suffix not in (".jpg", ".jpeg", ".png", ".webp", ".pdf"):
+        suffix = ""
+    safe_name = f"{uuid.uuid4().hex}{suffix}"
+    save_path = ATTACHMENT_DIR / safe_name
+    with open(save_path, "wb") as f:
+        f.write(content)
+    # DB 记录
+    att = TicketAttachment(ticket_id=ticket_id, filename=orig_name[:255],
+                           file_path=str(save_path), file_size=len(content),
+                           mime_type=mime)
+    db.add(att); db.commit(); db.refresh(att)
+    return ok({"id": att.id, "filename": att.filename, "size": att.file_size,
+               "mime_type": att.mime_type, "uploaded_at_ts": _ts(att.uploaded_at)},
+              "附件上传成功")
+
+
+@app.get("/api/tickets/{ticket_id}/attachments", response_model=ApiResp)
+def list_attachments(ticket_id: int, current: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    t = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not t:
+        return fail("工单不存在", 404)
+    if current.id != t.submitter_id and current.role not in ("sysadmin", "manager"):
+        return fail("无权操作此工单", 403)
+    items = db.query(TicketAttachment).filter(TicketAttachment.ticket_id == ticket_id).all()
+    return ok([{"id": a.id, "filename": a.filename, "size": a.file_size,
+                "mime_type": a.mime_type, "uploaded_at_ts": _ts(a.uploaded_at)}
+               for a in items])
+
+
+@app.delete("/api/tickets/{ticket_id}/attachments/{attachment_id}", response_model=ApiResp)
+def delete_attachment(ticket_id: int, attachment_id: int,
+                      current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not t:
+        return fail("工单不存在", 404)
+    if current.id != t.submitter_id and current.role not in ("sysadmin", "manager"):
+        return fail("无权操作此工单", 403)
+    att = db.query(TicketAttachment).filter(
+        TicketAttachment.id == attachment_id, TicketAttachment.ticket_id == ticket_id).first()
+    if not att:
+        return fail("附件不存在", 404)
+    # 删除物理文件
+    try:
+        Path(att.file_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+    db.delete(att); db.commit()
+    return ok(None, "附件已删除")
+
+
+@app.get("/api/attachments/{attachment_id}")
+def download_attachment(attachment_id: int, current: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    att = db.query(TicketAttachment).filter(TicketAttachment.id == attachment_id).first()
+    if not att:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    t = db.query(Ticket).filter(Ticket.id == att.ticket_id).first()
+    if not t or (current.id != t.submitter_id and current.role not in ("sysadmin", "manager")):
+        raise HTTPException(status_code=403, detail="无权访问")
+    return FileResponse(att.file_path, filename=att.filename)
+
+
+# ============================================================
+# 设备故障附件 API
+# ============================================================
+@app.get("/api/devices/{device_id}/fault-attachments/{attachment_id}")
+def download_device_fault_attachment(device_id: int, attachment_id: int,
+                                     current: User = Depends(get_current_user),
+                                     db: Session = Depends(get_db)):
+    att = db.query(DeviceFaultAttachment).filter(
+        DeviceFaultAttachment.id == attachment_id,
+        DeviceFaultAttachment.device_id == device_id).first()
+    if not att:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    if current.role not in (ROLE_SYSADMIN, ROLE_MANAGER):
+        raise HTTPException(status_code=403, detail="无权访问")
+    return FileResponse(att.file_path, filename=att.filename)
+
+
+@app.delete("/api/devices/{device_id}/fault-attachments/{attachment_id}", response_model=ApiResp)
+def delete_device_fault_attachment(device_id: int, attachment_id: int,
+                                   current: User = Depends(get_current_user),
+                                   db: Session = Depends(get_db)):
+    require_admin(current)
+    att = db.query(DeviceFaultAttachment).filter(
+        DeviceFaultAttachment.id == attachment_id,
+        DeviceFaultAttachment.device_id == device_id).first()
+    if not att:
+        return fail("附件不存在", 404)
+    try:
+        Path(att.file_path).unlink(missing_ok=True)
+    except Exception:
+        pass
+    db.delete(att); db.commit()
+    return ok(None, "附件已删除")
 
 
 # ============================================================
@@ -1149,6 +1508,9 @@ def create_report(form: ReportCreate, current: User = Depends(get_current_user),
         level=form.level, tag=form.tag,
         question=form.question.strip(), cause=form.cause,
         solution=form.solution.strip(),
+        repair_process=form.repair_process,
+        technical_measures=form.technical_measures,
+        repair_result=form.repair_result,
         summary=form.summary or (form.solution[:80] + ("…" if len(form.solution) > 80 else "")),
         ticket_id=form.ticket_id,
         status="pending",
@@ -1237,6 +1599,22 @@ def review_report(report_id: int, form: ReportReview,
         if not r.review_remark:
             r.review_remark = "管理员审核通过，已同步入库案例库，感谢贡献！"
         db.commit(); db.refresh(r)
+        
+        saved_case = db.query(Case).filter(Case.source_report_id == r.id).first()
+        if saved_case:
+            save_case({
+                "case_id": f"CASE-{saved_case.id:04d}",
+                "source_report_id": saved_case.source_report_id,
+                "title": saved_case.title,
+                "device": saved_case.device or "",
+                "fault": saved_case.fault or "",
+                "reason": saved_case.cause or "",
+                "solution": saved_case.solution or "",
+                "experience": saved_case.summary or "",
+                "author": saved_case.contributor_name or "",
+                "create_time": str(saved_case.created_at) if saved_case.created_at else ""
+            })
+        
         _push_notify(
             db, user_ids=[r.submitter_id],
             type=NOTIFY_TYPE_REPORT_SYNCED,
@@ -1257,6 +1635,11 @@ def review_report(report_id: int, form: ReportReview,
         for i, p in enumerate(parts, 1):
             raw_steps.append({"step": i, "content": p, "tip": r.cause if i == 1 else ""})
         steps_json = json.dumps(raw_steps, ensure_ascii=False)
+        # 难度：从报告的 level 字段映射（low=2, mid=3, high=4）
+        difficulty_map = {"low": 2, "mid": 3, "high": 4}
+        difficulty = difficulty_map.get((r.level or "mid").lower(), 3)
+        applicable_devices = r.device or ""
+
         existing = db.query(Guide).filter(Guide.source_report_id == r.id).first()
         if existing:
             existing.title = r.title
@@ -1264,13 +1647,17 @@ def review_report(report_id: int, form: ReportReview,
             existing.tag = r.tag
             existing.steps_json = steps_json
             existing.risk_note = r.cause
-            existing.duration_min = 20
+            existing.duration_min = existing.duration_min or 30
+            existing.difficulty = difficulty
+            existing.applicable_devices = applicable_devices
             existing.contributor_name = r.submitter_name
         else:
             g = Guide(
                 title=r.title, device_type=r.tag or "机械", tag=r.tag,
                 steps_json=steps_json, risk_note=r.cause,
-                duration_min=20, source_report_id=r.id,
+                duration_min=30, difficulty=difficulty,
+                applicable_devices=applicable_devices,
+                source_report_id=r.id,
                 contributor_name=r.submitter_name, created_at=now,
             )
             db.add(g)
@@ -1289,6 +1676,58 @@ def review_report(report_id: int, form: ReportReview,
         return ok(_to_report_info(r), "已同步入库作业指导库，全车间可见")
 
     return fail(f"未知审核操作：{action}，请使用 approve / reject / sync_case / sync_guide", 400)
+
+
+# ============================================================
+# B-3.6 知识图谱 API
+# ============================================================
+@app.get("/api/knowledge/cases", response_model=ApiResp)
+def list_knowledge_cases(
+    current: User = Depends(get_current_user),
+):
+    from .services.knowledge_graph import get_cases
+    cases = get_cases()
+    return ok(cases)
+
+
+@app.get("/api/knowledge/graph", response_model=ApiResp)
+def get_knowledge_graph_api(
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    tag: str = "all",
+):
+    from .services.knowledge_graph import get_knowledge_graph, build_graph_from_db
+    graph = get_knowledge_graph(tag=tag)
+    # 仅在请求"all"且图为空时触 lazily 构建
+    if tag == "all" and not graph.get("nodes"):
+        db_cases = db.query(Case).all()
+        if db_cases:
+            graph = build_graph_from_db(db_cases)
+            # build_graph_from_db 返回完整分图结构，需要取出 all
+            graph = graph.get("all", graph)
+    return ok(graph)
+
+
+@app.get("/api/knowledge/graph/stats", response_model=ApiResp)
+def knowledge_graph_stats(
+    current: User = Depends(get_current_user),
+):
+    """返回各 tag 子图的案例数（供前端 tab 上显示数字）"""
+    from .services.knowledge_graph import get_all_graph_stats
+    stats = get_all_graph_stats()
+    return ok(stats)
+
+
+@app.post("/api/knowledge/graph/rebuild", response_model=ApiResp)
+def rebuild_knowledge_graph(
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    require_admin(current)
+    from .services.knowledge_graph import build_graph_from_db
+    db_cases = db.query(Case).all()
+    graph = build_graph_from_db(db_cases)
+    return ok(graph.get("all", graph), "知识图谱已重建（按分类重建完成）")
 
 
 # ============================================================
@@ -1330,6 +1769,24 @@ def mark_notifications_read(
         Notification.user_id == current.id, Notification.is_read == 0
     ).count()
     return ok({"read": updated, "unread_count": unread_count})
+
+
+@app.delete("/api/notifications", response_model=ApiResp)
+def delete_notifications(
+    form: Optional[NotificationMarkReadReq] = Body(None),
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """删除通知：ids 指定具体 ID；为空则删除当前用户全部通知"""
+    q = db.query(Notification).filter(Notification.user_id == current.id)
+    if form and form.ids:
+        q = q.filter(Notification.id.in_(list(form.ids)))
+    deleted = q.delete(synchronize_session=False)
+    db.commit()
+    unread_count = db.query(Notification).filter(
+        Notification.user_id == current.id, Notification.is_read == 0
+    ).count()
+    return ok({"deleted": deleted, "unread_count": unread_count})
 
 
 # ============================================================

@@ -63,7 +63,8 @@ def _parse_json_list(raw: Any) -> List[str]:
 class Settings(BaseSettings):
     # 运行环境
     ENVIRONMENT: str = "production"
-    DEBUG: bool = False
+    DEBUG: bool = False                 # 你业务代码使用
+    APP_DEBUG: bool = False             # 队友模型代码使用，保持共存
 
     # API 服务
     API_HOST: str = "0.0.0.0"
@@ -83,11 +84,45 @@ class Settings(BaseSettings):
         db_path = here.parent / self.DB_FILENAME  # backend/equipai.db
         return f"sqlite:///{db_path.as_posix()}"
 
+    # ====== 数据存储 / RAG 文档上传（按队友 .env.example 补全配置）======
+    # 留空时默认使用项目根目录下 data/
+    DATA_DIR: str = ""
+    DATABASE_PATH: str = ""
+    DOCUMENT_UPLOAD_DIR: str = ""
+    MAX_DOCUMENT_UPLOAD_MB: int = 100
+    AUTO_IMPORT_KNOWLEDGE: bool = True
+    BUILTIN_KNOWLEDGE_DIR: str = ""
+
+    @property
+    def data_dir_path(self) -> Path:
+        if self.DATA_DIR:
+            return Path(self.DATA_DIR).expanduser().resolve()
+        return Path(__file__).resolve().parent.parent.parent / "data"
+
+    @property
+    def upload_dir_path(self) -> Path:
+        if self.DOCUMENT_UPLOAD_DIR:
+            return Path(self.DOCUMENT_UPLOAD_DIR).expanduser().resolve()
+        return self.data_dir_path / "uploads" / "documents"
+
+    @property
+    def builtin_knowledge_dir_path(self) -> Path:
+        if self.BUILTIN_KNOWLEDGE_DIR:
+            return Path(self.BUILTIN_KNOWLEDGE_DIR).expanduser().resolve()
+        return Path(__file__).resolve().parent.parent.parent / "knowledge"
+
+    # ====== 知识检索向量（按队友 .env.example 补全配置）======
+    EMBEDDING_BACKEND: str = "local_hash"          # local_hash / api
+    LOCAL_EMBEDDING_DIMENSION: int = 384
+    EMBEDDING_MODEL: str = "local-char-ngram-v1"
+    EMBEDDING_API_URL: str = ""
+    EMBEDDING_API_KEY: str = ""
+
     # CORS
     CORS_ORIGINS: Any = '["http://localhost:8000","http://localhost:3000","http://localhost:5173","http://localhost:5174","http://localhost:5175","http://localhost:5176","http://localhost:5177"]'
 
     # LLM 通用
-    LLM_BACKEND: str = "longcat"  # longcat / ollama
+    LLM_BACKEND: str = "qwen"  # longcat / ollama / qwen
     LLM_TEMPERATURE: float = 0.3
     LLM_TIMEOUT: int = 180
 
@@ -95,6 +130,14 @@ class Settings(BaseSettings):
     LONGCAT_API_KEY: str = ""
     LONGCAT_API_URL: str = "https://api.longcat.chat/openai"
     LONGCAT_MODEL: str = "longcat-2.0"
+
+    # ====== 阿里云百炼（队友新增，原样复制）======
+    QWEN_API_KEY: str = ""
+    QWEN_API_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    QWEN_MODEL: str = ""
+    QWEN_TEXT_MODEL: str = ""
+    QWEN_VISION_MODEL: str = "qwen3-vl-plus"
+    MAX_IMAGE_UPLOAD_MB: int = 10
 
     # Ollama 本地
     OLLAMA_API_URL: str = "http://localhost:11434/v1"
@@ -114,7 +157,8 @@ class Settings(BaseSettings):
         return self.machine_arch.lower().startswith("loongarch")
 
     if field_validator:
-        @field_validator("LONGCAT_API_URL", "OLLAMA_API_URL")
+        # 并集：LONGCAT + OLLAMA + QWEN_API_URL 一起校验 URL 末尾斜杠
+        @field_validator("LONGCAT_API_URL", "OLLAMA_API_URL", "QWEN_API_URL")
         @classmethod
         def _norm_url(cls, v: str) -> str:
             v = (v or "").strip()
@@ -127,18 +171,31 @@ class Settings(BaseSettings):
     } if BaseSettings is not object else {}
 
 
-# 兼容没有 pydantic-settings 的最小降级
+# 兼容没有 pydantic-settings 的最小降级（字段列表双方并集）
 def _fallback_settings() -> Settings:
     from dotenv import load_dotenv
     if _ENV_FILE:
         load_dotenv(_ENV_FILE, override=False)
     s = Settings()
     for fld in [
+        # ====== 你原有字段（含补漏 JWT_ALGORITHM / DB_FILENAME）======
         "ENVIRONMENT", "DEBUG", "API_HOST", "API_PORT",
-        "SECRET_KEY", "ACCESS_TOKEN_EXPIRE_HOURS", "CORS_ORIGINS",
+        "SECRET_KEY", "JWT_ALGORITHM", "ACCESS_TOKEN_EXPIRE_HOURS",
+        "DB_FILENAME", "CORS_ORIGINS",
         "LLM_BACKEND", "LLM_TEMPERATURE", "LLM_TIMEOUT",
         "LONGCAT_API_KEY", "LONGCAT_API_URL", "LONGCAT_MODEL",
         "OLLAMA_API_URL", "OLLAMA_MODEL",
+        # ====== 队友新增：APP_DEBUG ======
+        "APP_DEBUG",
+        # ====== 队友新增：数据存储 6 个 ======
+        "DATA_DIR", "DATABASE_PATH", "DOCUMENT_UPLOAD_DIR", "MAX_DOCUMENT_UPLOAD_MB",
+        "AUTO_IMPORT_KNOWLEDGE", "BUILTIN_KNOWLEDGE_DIR",
+        # ====== 队友新增：知识检索向量 5 个 ======
+        "EMBEDDING_BACKEND", "LOCAL_EMBEDDING_DIMENSION", "EMBEDDING_MODEL",
+        "EMBEDDING_API_URL", "EMBEDDING_API_KEY",
+        # ====== 队友新增：百炼 QWEN 6 个 ======
+        "QWEN_API_KEY", "QWEN_API_URL", "QWEN_MODEL", "QWEN_TEXT_MODEL", "QWEN_VISION_MODEL",
+        "MAX_IMAGE_UPLOAD_MB",
     ]:
         env_v = os.getenv(fld)
         if env_v is None:

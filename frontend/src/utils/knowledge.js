@@ -44,8 +44,7 @@ export const KNOWLEDGE_TYPE = {
 const LEVEL_LABEL = {
   low:   { label: '提示',   cls: 'level-low'   },
   mid:   { label: '注意',   cls: 'level-mid'   },
-  high:  { label: '严重',   cls: 'level-high'  },
-  critical: { label: '紧急', cls: 'level-critical' }
+  high:  { label: '严重（加急）',   cls: 'level-high'  }
 }
 
 export function getLevelMeta(level) {
@@ -315,6 +314,9 @@ export async function submitReport(data, user, source = REPORT_SOURCE.MANUAL) {
     question: String(data.question || data.problem || '').trim(),
     cause: String(data.cause || data.reason || '').trim(),
     solution: String(data.solution || '').trim(),
+    repair_process: String(data.repairProcess || '').trim(),
+    technical_measures: String(data.technicalMeasures || '').trim(),
+    repair_result: String(data.repairResult || '').trim(),
     summary: String(data.summary || '').trim(),
     ticket_id: String(data.ticket_id || data.ticketId || '').trim()
   }

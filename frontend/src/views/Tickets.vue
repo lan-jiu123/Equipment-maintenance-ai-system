@@ -2,29 +2,29 @@
   <div class="container">
     <!-- 顶部统计条 -->
     <section class="stats-grid mini">
-      <div class="stat-card card">
-        <div class="stat-icon red">🚨</div>
+      <div class="stat-card card" :class="{ 'is-alert': urgentCount > 0 }" data-cat="urgent">
+        <div class="stat-icon">🚨</div>
         <div class="stat-info">
           <div class="stat-value">{{ urgentCount }}</div>
           <div class="stat-label">加急待处理</div>
         </div>
       </div>
-      <div class="stat-card card">
-        <div class="stat-icon orange">📌</div>
+      <div class="stat-card card" data-cat="pending">
+        <div class="stat-icon">📌</div>
         <div class="stat-info">
           <div class="stat-value">{{ pendingCount }}</div>
           <div class="stat-label">待处理</div>
         </div>
       </div>
-      <div class="stat-card card">
-        <div class="stat-icon blue">🔄</div>
+      <div class="stat-card card" data-cat="ongoing">
+        <div class="stat-icon">🔄</div>
         <div class="stat-info">
           <div class="stat-value">{{ ongoingCount }}</div>
           <div class="stat-label">处理中</div>
         </div>
       </div>
-      <div class="stat-card card">
-        <div class="stat-icon green">✅</div>
+      <div class="stat-card card" data-cat="done">
+        <div class="stat-icon">✅</div>
         <div class="stat-info">
           <div class="stat-value">{{ doneCount }}</div>
           <div class="stat-label">本月已完成</div>
@@ -50,7 +50,6 @@
           <option value="pending">待处理</option>
           <option value="ongoing">处理中</option>
           <option value="done">已完成</option>
-          <option value="over">已超时</option>
         </select>
         <select v-model="levelFilter" class="input mini-select">
           <option value="">全部等级</option>
@@ -209,9 +208,9 @@ import {
 } from '../utils/api'
 import { toast as _toast } from '../utils/request'
 
-const LEVEL_ORDER = { critical: 0, high: 1, mid: 2, low: 3 }
-const LEVEL_LABEL = { critical: '紧急', high: '高', mid: '中', low: '低' }
-const LEVEL_CLS = { critical: 'critical', high: 'high', mid: 'medium', low: 'low' }
+const LEVEL_ORDER = { critical: 0, high: 0, mid: 1, low: 2 }
+const LEVEL_LABEL = { critical: '高（加急）', high: '高（加急）', mid: '中', low: '低' }
+const LEVEL_CLS = { critical: 'high', high: 'high', mid: 'medium', low: 'low' }
 const STATUS_DISPLAY = {
   pending:    { label: '待派单', cls: 'pending' },
   assigned:   { label: '待处理', cls: 'pending' },
@@ -222,7 +221,7 @@ const STATUS_DISPLAY = {
   overdue:    { label: '超时',   cls: 'overdue' },
   cancelled:  { label: '已取消', cls: 'overdue' }
 }
-const LEVEL_SLA_HOURS = { critical: 2, high: 6, mid: 24, low: 48 }
+const LEVEL_SLA_HOURS = { critical: 6, high: 6, mid: 24, low: 48 }
 
 function _fmtTime(ts) {
   if (!ts) return '-'
@@ -246,7 +245,7 @@ function _calcSla(ts, level, finishTs) {
   const elapsedMs = Date.now() - startMs
   const remainMs = totalMs - elapsedMs
   let pct = Math.max(0, Math.min(100, Math.round((remainMs / totalMs) * 100)))
-  if (remainMs <= 0) return { pct: 0, text: '已超时' }
+  if (remainMs <= 0) return { pct: 0, text: '待处理' }
   const h = Math.floor(remainMs / 3600000)
   const m = Math.floor((remainMs % 3600000) / 60000)
   let text
@@ -256,14 +255,26 @@ function _calcSla(ts, level, finishTs) {
 }
 
 function _mapTicket(t) {
-  const level = (t.level || 'mid').toLowerCase()
+  let level = (t.level || 'mid').toLowerCase()
+  if (level === 'critical') level = 'high'
   const statusKey = (t.status || 'pending').toLowerCase()
   const display = STATUS_DISPLAY[statusKey] || STATUS_DISPLAY.pending
   const sla = _calcSla(t.submit_time_ts, level, t.finish_time_ts)
   let mappedStatus = statusKey
-  if (statusKey === 'pending' && t.assignee_id) mappedStatus = 'assigned'
-  if (statusKey === 'processing') mappedStatus = 'ongoing'
+  if (statusKey === 'processing' || statusKey === 'doing') mappedStatus = 'ongoing'
   if (statusKey === 'completed') mappedStatus = 'done'
+  if (statusKey === 'over') mappedStatus = 'ongoing'
+  let slaText, slaPct
+  if (mappedStatus === 'done') {
+    slaText = '已完成'
+    slaPct = 100
+  } else if (mappedStatus === 'pending') {
+    slaText = '待处理'
+    slaPct = 0
+  } else {
+    slaText = '处理中'
+    slaPct = 50
+  }
   return {
     id: t.id,
     code: t.code || ('WO-' + String(t.id).padStart(6, '0')),
@@ -276,8 +287,8 @@ function _mapTicket(t) {
     _levelKey: level,
     _submitTs: t.submit_time_ts || 0,
     _finishTs: t.finish_time_ts || 0,
-    slaPct: sla.pct,
-    slaText: sla.text,
+    slaPct: slaPct,
+    slaText: slaText,
     createdText: _fmtTime(t.submit_time_ts),
     status: mappedStatus,
     status_label: t.status_label || display.label,
@@ -329,7 +340,7 @@ export default {
       else if (st === 'done') arr = arr.filter(t => t.status === 'done')
       if (this.statusFilter) arr = arr.filter(t => t.status === this.statusFilter || (this.statusFilter === 'over' && t.status === 'overdue'))
       if (this.levelFilter) arr = arr.filter(t => t._levelKey === this.levelFilter)
-      if (this.onlyUrgent) arr = arr.filter(t => t._levelKey === 'critical' || t._levelKey === 'high')
+      if (this.onlyUrgent) arr = arr.filter(t => t._levelKey === 'high')
       if (this.keyword) {
         const k = this.keyword.trim().toLowerCase()
         if (k) {
@@ -354,8 +365,8 @@ export default {
     },
     urgentCount() {
       return this.allTickets.filter(t =>
-        (t.status === 'assigned' || t.status === 'pending' || t.status === 'ongoing') &&
-        (t._levelKey === 'critical')
+        (t.status === 'pending' || t.status === 'assigned') &&
+        (t._levelKey === 'high')
       ).length
     },
     pendingCount() { return this.countByStatus('pending') },
@@ -384,8 +395,8 @@ export default {
   methods: {
     countByStatus(k) {
       if (k === 'all') return this.allTickets.length
-      if (k === 'pending') return this.allTickets.filter(t => t.status === 'assigned' || t.status === 'pending').length
-      if (k === 'ongoing') return this.allTickets.filter(t => t.status === 'ongoing').length
+      if (k === 'pending') return this.allTickets.filter(t => t.status === 'pending').length
+      if (k === 'ongoing') return this.allTickets.filter(t => t.status === 'ongoing' || t.status === 'assigned').length
       if (k === 'done')    return this.allTickets.filter(t => t.status === 'done').length
       return 0
     },
@@ -548,15 +559,73 @@ export default {
 .filter-chip.active { background: rgba(239, 68, 68, 0.1); color: var(--accent-red); border-color: rgba(239, 68, 68, 0.35); }
 
 .stats-grid.mini { grid-template-columns: repeat(4, 1fr); gap: 12px; display: grid; margin-bottom: 16px; }
-.stat-card { display: flex; align-items: center; gap: 12px; }
-.stat-icon { width: 40px; height: 40px; border-radius: var(--radius); display: flex; align-items: center; justify-content: center; font-size: 1.15rem; flex-shrink: 0; }
-.stat-icon.red    { color: var(--accent-red);    background: rgba(239,68,68,0.1);  border: 1px solid rgba(239,68,68,0.18); }
-.stat-icon.orange { color: var(--accent-orange); background: rgba(245,158,11,0.1);  border: 1px solid rgba(245,158,11,0.18); }
-.stat-icon.blue   { color: var(--primary); background: var(--primary-subtle); border: 1px solid var(--border-active); }
-.stat-icon.green  { color: var(--accent-green); background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.18); }
-.stat-info { flex: 1; }
+
+/* 统计卡片：左竖条 + 背景晕染 + data-cat 主题色 */
+.stat-card {
+  display: flex; align-items: center; gap: 14px;
+  position: relative; overflow: hidden;
+  padding: 18px 20px;
+}
+.stat-card::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 4px; border-radius: 0 4px 4px 0;
+}
+.stat-card::after {
+  content: ''; position: absolute; right: -30px; bottom: -30px;
+  width: 100px; height: 100px; border-radius: 50%;
+  opacity: 0.08; pointer-events: none;
+}
+.stat-card[data-cat="urgent"]::before,
+.stat-card[data-cat="urgent"]::after   { background: var(--accent-red); }
+.stat-card[data-cat="pending"]::before,
+.stat-card[data-cat="pending"]::after { background: var(--accent-orange); }
+.stat-card[data-cat="ongoing"]::before,
+.stat-card[data-cat="ongoing"]::after { background: var(--primary); }
+.stat-card[data-cat="done"]::before,
+.stat-card[data-cat="done"]::after    { background: var(--accent-green); }
+
+/* 图标色块 */
+.stat-icon {
+  width: 52px; height: 52px; border-radius: var(--radius-lg);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.375rem; flex-shrink: 0; position: relative; z-index: 1;
+}
+.stat-card[data-cat="urgent"] .stat-icon   { color: var(--accent-red);    background: rgba(239,68,68,0.10);  border: 1px solid rgba(239,68,68,0.18); }
+.stat-card[data-cat="pending"] .stat-icon  { color: var(--accent-orange); background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.18); }
+.stat-card[data-cat="ongoing"] .stat-icon  { color: var(--primary);       background: var(--primary-subtle);               border: 1px solid var(--border-active); }
+.stat-card[data-cat="done"] .stat-icon     { color: var(--accent-green);  background: rgba(16,185,129,0.10);               border: 1px solid rgba(16,185,129,0.18); }
+
+/* 文案 */
+.stat-info { flex: 1; min-width: 0; }
 .stat-value { font-size: 1.625rem; font-weight: 700; font-family: 'Orbitron', sans-serif; line-height: 1.1; color: var(--text-primary); }
 .stat-label { font-size: 0.8125rem; color: var(--text-secondary); margin-top: 4px; }
+.stat-trend {
+  font-size: 0.6875rem; font-family: 'JetBrains Mono', monospace;
+  margin-top: 6px; font-weight: 600;
+}
+
+/* 加急卡片呼吸红光（仅 urgentCount > 0 时渲染 .is-alert）*/
+.stat-card.is-alert {
+  animation: alertBreathe 2s ease-in-out infinite;
+}
+.stat-card.is-alert::before {
+  animation: alertBar 2s ease-in-out infinite;
+}
+.stat-card.is-alert .stat-icon {
+  animation: alertIcon 2s ease-in-out infinite;
+}
+@keyframes alertBreathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 22px 4px rgba(239, 68, 68, 0.45); }
+}
+@keyframes alertBar {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+@keyframes alertIcon {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 16px 3px rgba(239, 68, 68, 0.6); }
+}
 
 .table-section { padding: 20px; }
 .table-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
@@ -591,7 +660,6 @@ export default {
 .muted { color: var(--text-muted); font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; }
 
 .level-tag { display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.5px; }
-.lv-critical { background: rgba(239, 68, 68, 0.12); color: var(--accent-red); border: 1px solid rgba(239, 68, 68, 0.35); }
 .lv-high     { background: rgba(245, 158, 11, 0.14); color: var(--accent-orange); border: 1px solid rgba(245, 158, 11, 0.35); }
 .lv-medium   { background: rgba(6, 182, 212, 0.12); color: var(--accent-cyan); border: 1px solid rgba(6, 182, 212, 0.35); }
 .lv-low      { background: var(--primary-subtle); color: var(--primary); border: 1px solid var(--border-active); }
@@ -671,7 +739,7 @@ export default {
   padding: 24px;
 }
 .finish-dialog {
-  width: 100%; max-width: 600px; max-height: 90vh;
+  width: 100%; max-width: 600px; max-height: 90vh; min-height: 0;
   display: flex; flex-direction: column; overflow: hidden;
   border: 1px solid var(--border-active); border-radius: var(--radius-lg);
 }
@@ -692,7 +760,7 @@ export default {
 }
 .kr-close:hover { color: var(--accent-red); border-color: var(--accent-red); background: rgba(239,68,68,0.1); }
 
-.finish-body { padding: 20px 24px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.finish-body { padding: 20px 24px; overflow-y: auto; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .kr-row .kr-label { display: block; font-size: 0.8125rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
 .kr-label.required::before { content: '*'; color: var(--accent-red); margin-right: 4px; }
 .kr-row.kr-double { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

@@ -57,12 +57,21 @@
                 />
               </div>
               <div>
-                <label class="kr-label">故障等级</label>
-                <div class="level-group">
-                  <button v-for="lv in levels" :key="lv.v" class="lv-btn" :class="'lv-' + lv.v + (form.level === lv.v ? ' active' : '')" @click="form.level = lv.v">
-                    {{ lv.l }}
-                  </button>
-                </div>
+                <label class="kr-label">工单编号</label>
+                <input
+                  v-model="form.ticketId"
+                  class="input"
+                  type="text"
+                  placeholder="如：TK-20260715-001"
+                />
+              </div>
+            </div>
+            <div class="kr-row">
+              <label class="kr-label">故障等级</label>
+              <div class="level-group">
+                <button v-for="lv in levels" :key="lv.v" class="lv-btn" :class="'lv-' + lv.v + (form.level === lv.v ? ' active' : '')" @click="form.level = lv.v">
+                  {{ lv.l }}
+                </button>
               </div>
             </div>
           </div>
@@ -82,14 +91,66 @@
 
           <div class="kr-row">
             <label class="kr-label required">
-              您的实践解决方案（经现场验证）
-              <span class="label-hint">分步骤描述，越详细越好</span>
+              故障描述
+              <span class="label-hint">描述故障现象、检测到的参数、初步判断</span>
+            </label>
+            <textarea
+              v-model="form.fault"
+              class="input"
+              rows="3"
+              placeholder="例如：离心泵轴承温度持续升高至85℃，噪音明显增大..."
+            ></textarea>
+          </div>
+
+          <div class="kr-row">
+            <label class="kr-label">
+              维修过程
+              <span class="label-hint">分步骤描述维修操作流程</span>
+            </label>
+            <textarea
+              v-model="form.repairProcess"
+              class="input"
+              rows="4"
+              placeholder="1. 断电停机，做好安全措施&#10;2. 拆卸泵体，检查轴承状态&#10;3. 更换损坏部件..."
+            ></textarea>
+          </div>
+
+          <div class="kr-row">
+            <label class="kr-label">
+              使用方法/技术措施
+              <span class="label-hint">使用的工具、技术手段、注意事项</span>
+            </label>
+            <textarea
+              v-model="form.technicalMeasures"
+              class="input"
+              rows="4"
+              placeholder="使用万用表测量线圈电阻&#10;使用红外测温仪监测温度&#10;注意事项：操作时需佩戴绝缘手套..."
+            ></textarea>
+          </div>
+
+          <div class="kr-row">
+            <label class="kr-label">
+              维修结果
+              <span class="label-hint">维修后的状态、验证数据、运行情况</span>
+            </label>
+            <textarea
+              v-model="form.repairResult"
+              class="input"
+              rows="3"
+              placeholder="更换轴承后试运行2小时，温度稳定在55℃以下&#10;噪音从85dB降至62dB&#10;设备运行正常"
+            ></textarea>
+          </div>
+
+          <div class="kr-row">
+            <label class="kr-label required">
+              解决方案总结
+              <span class="label-hint">综合描述完整解决方案</span>
             </label>
             <textarea
               v-model="form.solution"
               class="input"
-              rows="6"
-              placeholder="1. 第一步做什么&#10;2. 第二步做什么&#10;3. 验证结果（温度、电流、噪音等）"
+              rows="4"
+              placeholder="综合上述维修过程，总结完整解决方案..."
             ></textarea>
           </div>
 
@@ -104,7 +165,7 @@
           <div class="kr-actions">
             <button class="btn btn-outline" @click="handleClose">取消</button>
             <button class="btn btn-primary" :disabled="submitting" @click="handleSubmit">
-              <span v-if="!submitting">提交审核</span>
+              <span v-if="!submitting">提交报告</span>
               <span v-else>提交中...</span>
             </button>
           </div>
@@ -133,10 +194,14 @@ export default {
         type: 'case',
         title: '',
         device: '',
+        ticketId: '',
         level: 'mid',
         question: '',
-        solution: '',
-        ticketId: ''
+        fault: '',
+        repairProcess: '',
+        technicalMeasures: '',
+        repairResult: '',
+        solution: ''
       },
       levels: [
         { v: 'low', l: '提示' },
@@ -164,10 +229,13 @@ export default {
           type: (this.preset && this.preset.type) || 'case',
           title: (this.preset && this.preset.title) || '',
           device: (this.preset && this.preset.device) || '',
+          ticketId: (this.preset && this.preset.ticketId) || '',
           level: (this.preset && this.preset.level) || 'mid',
           question: (this.preset && this.preset.question) || '',
-          solution: (this.preset && this.preset.solution) || '',
-          ticketId: (this.preset && this.preset.ticketId) || ''
+          repairProcess: (this.preset && this.preset.repairProcess) || '',
+          technicalMeasures: (this.preset && this.preset.technicalMeasures) || '',
+          repairResult: (this.preset && this.preset.repairResult) || '',
+          solution: (this.preset && this.preset.solution) || ''
         }
       }
     }

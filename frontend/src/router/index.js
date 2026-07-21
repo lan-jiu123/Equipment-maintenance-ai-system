@@ -5,6 +5,7 @@ import Home from '../views/Home.vue'
 import Search from '../views/Search.vue'
 import Guide from '../views/Guide.vue'
 import Case from '../views/Case.vue'
+import KnowledgeGraph from '../views/KnowledgeGraph.vue'
 import Login from '../views/Login.vue'
 import Profile from '../views/Profile.vue'
 import Password from '../views/Password.vue'
@@ -41,6 +42,7 @@ const routes = [
   { path: '/search', component: Search, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '智能检索' } },
   { path: '/guide', component: Guide, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '作业指导' } },
   { path: '/case', component: Case, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '案例库' } },
+  { path: '/graph', component: KnowledgeGraph, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '知识图谱' } },
   { path: '/profile', component: Profile, meta: { roles: ['sysadmin', 'manager', 'worker'] } },
   { path: '/password', component: Password, meta: { roles: ['sysadmin', 'manager', 'worker'] } },
   { path: '/logs', component: Logs, meta: { roles: ['sysadmin', 'manager'] } }
