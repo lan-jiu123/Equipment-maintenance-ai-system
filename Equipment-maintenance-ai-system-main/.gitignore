@@ -1,0 +1,62 @@
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+
+# === 敏感环境变量（绝对不进 git）===
+.env
+.env.local
+.env.*.local
+deploy/.env
+
+# === 数据库文件（SQLite / 本地数据）===
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# === 数据目录 / 向量检索文件（模型接入新增）===
+data/raw/
+data/uploads/
+
+# === 日志 / 调试输出 ===
+*.log
+debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# === 临时目录 ===
+tmp/
+
+# === 前端依赖 / 构建产物 ===
+node_modules/
+dist/
+.vite/
+.DS_Store
+
+# === IDE / 编辑器 ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# === 调试 / 临时脚本 ===
+_debug_graph.py
+check_urgent.py
+verify.py
+utputFormat
+guide_test.json
+
+# === 项目副本（龙芯部署备份）===
+equipai-deploy1/
+
+# === Claude Code 个人记忆 ===
+.claude/
+
+.packages/

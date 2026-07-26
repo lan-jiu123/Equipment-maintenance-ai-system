@@ -1,0 +1,382 @@
+[
+  {
+    "title": "数控车床导轨润滑保养",
+    "device_type": "机械",
+    "tag": "机械·润滑",
+    "difficulty": 2,
+    "duration_min": 20,
+    "applicable_devices": "数控车床、加工中心",
+    "required_tools": ["导轨润滑油", "毛刷", "擦拭布", "注油枪"],
+    "steps": [
+      {"step": 1, "content": "停机断电", "tip": ""},
+      {"step": 2, "content": "清理导轨油污", "tip": ""},
+      {"step": 3, "content": "检查导轨磨损", "tip": ""},
+      {"step": 4, "content": "均匀加注润滑油", "tip": ""},
+      {"step": 5, "content": "手动移动滑台检查润滑情况", "tip": ""},
+      {"step": 6, "content": "开机空载试运行", "tip": ""}
+    ],
+    "risk_note": "使用规定型号润滑油；禁止设备运行时加油；清洁过程中避免异物进入导轨。",
+    "source": "official"
+  },
+  {
+    "title": "滚动轴承更换",
+    "device_type": "机械",
+    "tag": "机械·轴承",
+    "difficulty": 3,
+    "duration_min": 45,
+    "applicable_devices": "电机、离心泵、减速机",
+    "required_tools": ["拉马", "扭矩扳手", "润滑脂", "内六角扳手"],
+    "steps": [
+      {"step": 1, "content": "停机断电", "tip": ""},
+      {"step": 2, "content": "拆除防护罩", "tip": ""},
+      {"step": 3, "content": "使用拉马拆卸旧轴承", "tip": ""},
+      {"step": 4, "content": "检查轴承座", "tip": ""},
+      {"step": 5, "content": "安装新轴承并加注润滑脂", "tip": ""},
+      {"step": 6, "content": "校准后试运行", "tip": ""}
+    ],
+    "risk_note": "禁止敲击轴承；安装前保持轴承清洁；检查是否存在异常振动。",
+    "source": "official"
+  },
+  {
+    "title": "联轴器对中调整",
+    "device_type": "机械",
+    "tag": "机械·对中",
+    "difficulty": 3,
+    "duration_min": 30,
+    "applicable_devices": "电机、风机、离心泵",
+    "required_tools": ["百分表", "塞尺", "扳手"],
+    "steps": [
+      {"step": 1, "content": "切断电源", "tip": ""},
+      {"step": 2, "content": "松开联轴器", "tip": ""},
+      {"step": 3, "content": "使用百分表测量偏差", "tip": ""},
+      {"step": 4, "content": "调整设备位置", "tip": ""},
+      {"step": 5, "content": "锁紧螺栓", "tip": ""},
+      {"step": 6, "content": "空载运行检查", "tip": ""}
+    ],
+    "risk_note": "调整完成后重新复测；禁止带电调整；注意联轴器防护。",
+    "source": "official"
+  },
+  {
+    "title": "丝杠间隙调整",
+    "device_type": "机械",
+    "tag": "机械·丝杠",
+    "difficulty": 4,
+    "duration_min": 40,
+    "applicable_devices": "数控车床、加工中心",
+    "required_tools": ["百分表", "内六角扳手", "千分尺"],
+    "steps": [
+      {"step": 1, "content": "停机断电", "tip": ""},
+      {"step": 2, "content": "检查丝杠磨损", "tip": ""},
+      {"step": 3, "content": "调整预紧螺母", "tip": ""},
+      {"step": 4, "content": "测量反向间隙", "tip": ""},
+      {"step": 5, "content": "校准定位精度", "tip": ""},
+      {"step": 6, "content": "试运行验证", "tip": ""}
+    ],
+    "risk_note": "调整幅度应逐步进行；校准完成后记录数据；避免预紧过大。",
+    "source": "official"
+  },
+  {
+    "title": "输送皮带更换",
+    "device_type": "机械",
+    "tag": "机械·皮带",
+    "difficulty": 2,
+    "duration_min": 35,
+    "applicable_devices": "输送机、皮带传动设备",
+    "required_tools": ["扳手", "皮带张力计", "防护手套"],
+    "steps": [
+      {"step": 1, "content": "停机断电", "tip": ""},
+      {"step": 2, "content": "松开张紧装置", "tip": ""},
+      {"step": 3, "content": "拆除旧皮带", "tip": ""},
+      {"step": 4, "content": "安装新皮带", "tip": ""},
+      {"step": 5, "content": "调整张紧力", "tip": ""},
+      {"step": 6, "content": "试运行检查", "tip": ""}
+    ],
+    "risk_note": "检查皮带轮磨损；张紧力符合标准；禁止设备运行时调整。",
+    "source": "official"
+  },
+  {
+    "title": "PLC 输入模块更换",
+    "device_type": "电气",
+    "tag": "电气·PLC",
+    "difficulty": 3,
+    "duration_min": 25,
+    "applicable_devices": "PLC 控制柜",
+    "required_tools": ["十字螺丝刀", "万用表", "标签纸"],
+    "steps": [
+      {"step": 1, "content": "关闭控制柜电源", "tip": ""},
+      {"step": 2, "content": "验电确认", "tip": ""},
+      {"step": 3, "content": "拍照记录接线", "tip": ""},
+      {"step": 4, "content": "更换输入模块", "tip": ""},
+      {"step": 5, "content": "恢复接线", "tip": ""},
+      {"step": 6, "content": "通电测试", "tip": ""}
+    ],
+    "risk_note": "注意静电防护；接线编号保持一致；更换后检查 I/O 状态。",
+    "source": "official"
+  },
+  {
+    "title": "接触器更换",
+    "device_type": "电气",
+    "tag": "电气·接触器",
+    "difficulty": 2,
+    "duration_min": 20,
+    "applicable_devices": "控制柜、电机控制回路",
+    "required_tools": ["十字螺丝刀", "万用表", "尖嘴钳"],
+    "steps": [
+      {"step": 1, "content": "停电验电", "tip": ""},
+      {"step": 2, "content": "拆除旧接触器", "tip": ""},
+      {"step": 3, "content": "安装新接触器", "tip": ""},
+      {"step": 4, "content": "恢复接线", "tip": ""},
+      {"step": 5, "content": "检查紧固情况", "tip": ""},
+      {"step": 6, "content": "通电测试", "tip": ""}
+    ],
+    "risk_note": "严禁带电作业；检查触点接触情况；确认线圈电压一致。",
+    "source": "official"
+  },
+  {
+    "title": "变频器参数恢复",
+    "device_type": "电气",
+    "tag": "电气·变频",
+    "difficulty": 2,
+    "duration_min": 15,
+    "applicable_devices": "变频驱动设备",
+    "required_tools": ["操作面板", "参数备份文件"],
+    "steps": [
+      {"step": 1, "content": "进入参数菜单", "tip": ""},
+      {"step": 2, "content": "备份原参数", "tip": ""},
+      {"step": 3, "content": "恢复默认值", "tip": ""},
+      {"step": 4, "content": "导入标准参数", "tip": ""},
+      {"step": 5, "content": "保存配置", "tip": ""},
+      {"step": 6, "content": "试运行", "tip": ""}
+    ],
+    "risk_note": "恢复前必须备份；检查电机参数；低速试运行确认。",
+    "source": "official"
+  },
+  {
+    "title": "电机绝缘检测",
+    "device_type": "电气",
+    "tag": "电气·绝缘",
+    "difficulty": 3,
+    "duration_min": 30,
+    "applicable_devices": "三相异步电机",
+    "required_tools": ["绝缘电阻测试仪", "万用表"],
+    "steps": [
+      {"step": 1, "content": "停机断电", "tip": ""},
+      {"step": 2, "content": "拆除电缆", "tip": ""},
+      {"step": 3, "content": "测量绝缘电阻", "tip": ""},
+      {"step": 4, "content": "记录结果", "tip": ""},
+      {"step": 5, "content": "判断是否合格", "tip": ""},
+      {"step": 6, "content": "恢复接线", "tip": ""}
+    ],
+    "risk_note": "测试前充分放电；测试环境保持干燥；测试结束再次放电。",
+    "source": "official"
+  },
+  {
+    "title": "控制柜接线检查",
+    "device_type": "电气",
+    "tag": "电气·接线",
+    "difficulty": 2,
+    "duration_min": 25,
+    "applicable_devices": "PLC 控制柜、配电柜",
+    "required_tools": ["螺丝刀", "万用表", "照明灯"],
+    "steps": [
+      {"step": 1, "content": "停电验电", "tip": ""},
+      {"step": 2, "content": "检查端子", "tip": ""},
+      {"step": 3, "content": "紧固接线", "tip": ""},
+      {"step": 4, "content": "清理灰尘", "tip": ""},
+      {"step": 5, "content": "检查接地", "tip": ""},
+      {"step": 6, "content": "通电测试", "tip": ""}
+    ],
+    "risk_note": "防止端子松动；清洁时避免损坏元件；检查柜内散热情况。",
+    "source": "official"
+  },
+  {
+    "title": "液压油更换",
+    "device_type": "液压",
+    "tag": "液压·油品",
+    "difficulty": 3,
+    "duration_min": 30,
+    "applicable_devices": "各类液压系统、液压站",
+    "required_tools": ["接油桶", "扳手", "抹布", "新液压油", "滤油装置"],
+    "steps": [
+      {"step": 1, "content": "设备停机断电，系统泄压", "tip": ""},
+      {"step": 2, "content": "放置接油容器，拆卸放油口螺栓", "tip": ""},
+      {"step": 3, "content": "排空旧液压油，清理油箱杂质", "tip": ""},
+      {"step": 4, "content": "更换系统滤芯", "tip": ""},
+      {"step": 5, "content": "加注合格型号新液压油至标准液位", "tip": ""},
+      {"step": 6, "content": "点动设备排气，试运行检查无渗漏", "tip": ""}
+    ],
+    "risk_note": "必须完全泄压后方可放油，防止高压喷油伤人；新旧液压油型号、牌号需一致，禁止混用；加注过程保持洁净，避免杂质进入系统；废油统一回收处理，严禁随意倾倒。",
+    "source": "official"
+  },
+  {
+    "title": "液压泵更换",
+    "device_type": "液压",
+    "tag": "液压·泵阀",
+    "difficulty": 4,
+    "duration_min": 45,
+    "applicable_devices": "液压站、柱塞泵、齿轮泵配套液压设备",
+    "required_tools": ["套筒扳手", "内六角扳手", "撬棍", "抹布", "密封垫圈", "液压油"],
+    "steps": [
+      {"step": 1, "content": "设备停机断电，彻底释放系统压力", "tip": ""},
+      {"step": 2, "content": "断开液压泵进出油管路、固定螺栓及联轴器", "tip": ""},
+      {"step": 3, "content": "拆除故障液压泵，清理安装底座油污杂质", "tip": ""},
+      {"step": 4, "content": "更换新密封件，安装新液压泵并紧固固定螺栓", "tip": ""},
+      {"step": 5, "content": "对接油路管路，检查接口密封性", "tip": ""},
+      {"step": 6, "content": "补加液压油，排气试运行，检查压力及渗漏情况", "tip": ""}
+    ],
+    "risk_note": "拆装前务必断电泄压，杜绝带压拆装；新泵型号、参数需与原设备匹配；管路接口密封件必须全新更换，防止漏油进气；试运行缓慢升压，观察设备异响、渗漏、压力异常情况。",
+    "source": "official"
+  },
+  {
+    "title": "液压缸密封圈更换",
+    "device_type": "液压",
+    "tag": "液压·密封",
+    "difficulty": 3,
+    "duration_min": 35,
+    "applicable_devices": "各类伸缩式液压缸、升降油缸",
+    "required_tools": ["卡簧钳", "扳手", "铜棒", "无尘抹布", "专用密封圈", "润滑脂"],
+    "steps": [
+      {"step": 1, "content": "设备停机断电，油缸泄压归位", "tip": ""},
+      {"step": 2, "content": "拆卸油缸固定连接件，拆解油缸端盖", "tip": ""},
+      {"step": 3, "content": "取出老化、破损密封圈，清理缸筒及活塞杆油污划痕", "tip": ""},
+      {"step": 4, "content": "涂抹专用润滑脂，安装全新匹配密封圈", "tip": ""},
+      {"step": 5, "content": "复位组装油缸，紧固端盖及连接件", "tip": ""},
+      {"step": 6, "content": "空载伸缩试运行，检查无渗漏、卡顿故障", "tip": ""}
+    ],
+    "risk_note": "拆装过程避免划伤活塞杆及缸筒内壁；密封圈规格、材质需与原厂标准一致；禁止硬物暴力拆装，防止缸体变形损坏；组装后需空载多次伸缩排气，确保运行顺畅。",
+    "source": "official"
+  },
+  {
+    "title": "溢流阀压力调整",
+    "device_type": "液压",
+    "tag": "液压·调压",
+    "difficulty": 3,
+    "duration_min": 20,
+    "applicable_devices": "液压系统溢流阀、调压阀组",
+    "required_tools": ["内六角扳手", "压力表", "记录本"],
+    "steps": [
+      {"step": 1, "content": "设备空载启动，接通液压系统", "tip": ""},
+      {"step": 2, "content": "观察系统原始压力数值，记录初始参数", "tip": ""},
+      {"step": 3, "content": "缓慢微调溢流阀调节螺栓，逐步升压", "tip": ""},
+      {"step": 4, "content": "对照设备标准压力值，精准调压至额定范围", "tip": ""},
+      {"step": 5, "content": "锁紧调节锁紧螺母，固定参数", "tip": ""},
+      {"step": 6, "content": "带载试运行，复核压力稳定性", "tip": ""}
+    ],
+    "risk_note": "严禁一次性大幅调压，避免压力骤升损坏设备；调整压力不得超过设备额定最高压力；调压全程观察压力表，防止超压过载；调整完成必须锁紧螺母，防止运行中压力偏移。",
+    "source": "official"
+  },
+  {
+    "title": "温度传感器更换",
+    "device_type": "仪表",
+    "tag": "仪表·温度",
+    "difficulty": 2,
+    "duration_min": 20,
+    "applicable_devices": "液压系统、机电设备、温控监测设备",
+    "required_tools": ["螺丝刀", "万用表", "绝缘胶带", "新温度传感器"],
+    "steps": [
+      {"step": 1, "content": "设备断电验电，确认无带电风险", "tip": ""},
+      {"step": 2, "content": "拆除旧传感器接线，记录接线顺序", "tip": ""},
+      {"step": 3, "content": "拆卸故障传感器探头及固定底座", "tip": ""},
+      {"step": 4, "content": "安装新传感器，固定牢固", "tip": ""},
+      {"step": 5, "content": "对照线路标识规范接线、绝缘包裹", "tip": ""},
+      {"step": 6, "content": "通电测试，检查温度数据采集正常", "tip": ""}
+    ],
+    "risk_note": "接线前必须断电，防止短路烧坏仪表；传感器型号、量程需与原设备匹配；探头安装位置贴合测温介质，避免虚装导致数据不准；接线牢固，做好绝缘防护，防止线路受潮故障。",
+    "source": "official"
+  },
+  {
+    "title": "压力变送器校准",
+    "device_type": "仪表",
+    "tag": "仪表·压力",
+    "difficulty": 3,
+    "duration_min": 30,
+    "applicable_devices": "液压、气压、水路压力监测变送器",
+    "required_tools": ["标准压力校验仪", "万用表", "调试手柄", "记录本"],
+    "steps": [
+      {"step": 1, "content": "设备泄压停机，隔离变送器监测管路", "tip": ""},
+      {"step": 2, "content": "连接标准校验设备，接通变送器电源", "tip": ""},
+      {"step": 3, "content": "进行零点校准，消除初始偏差", "tip": ""},
+      {"step": 4, "content": "分段输入标准压力值，校准量程线性", "tip": ""},
+      {"step": 5, "content": "复核高低压区间数据精度", "tip": ""},
+      {"step": 6, "content": "恢复设备管路，在线运行验证数据", "tip": ""}
+    ],
+    "risk_note": "校准前必须隔离被测管路，杜绝带压作业；校准环境平稳，避免震动、温度干扰；严格按照设备量程标准校准，禁止超量程调试；校准完成留存校准记录，保障数据可追溯。",
+    "source": "official"
+  },
+  {
+    "title": "流量计检查",
+    "device_type": "仪表",
+    "tag": "仪表·流量",
+    "difficulty": 2,
+    "duration_min": 20,
+    "applicable_devices": "液压油路、水路、气路流量监测设备",
+    "required_tools": ["抹布", "万用表", "内窥镜（可选）", "记录本"],
+    "steps": [
+      {"step": 1, "content": "停机泄压，切断设备介质输送", "tip": ""},
+      {"step": 2, "content": "清洁流量计表盘、探头及管路杂质油污", "tip": ""},
+      {"step": 3, "content": "检查流量计固定状态，无松动、渗漏", "tip": ""},
+      {"step": 4, "content": "通电检查显示数据、信号传输是否正常", "tip": ""},
+      {"step": 5, "content": "比对实际流量与表盘数值，排查偏差", "tip": ""},
+      {"step": 6, "content": "清理周边杂物，记录检查结果", "tip": ""}
+    ],
+    "risk_note": "禁止带压拆卸流量计部件；清洁时避免硬物刮伤感应探头；发现数据漂移、卡顿需及时排查堵塞或故障；保持流量计周边通风干燥，防止积尘积水影响监测精度。",
+    "source": "official"
+  },
+  {
+    "title": "高压柜检修安全作业",
+    "device_type": "安全",
+    "tag": "安全·高压",
+    "difficulty": 4,
+    "duration_min": 40,
+    "applicable_devices": "高压配电柜、高压开关柜",
+    "required_tools": ["高压验电器", "绝缘手套", "绝缘靴", "接地线", "警示牌", "绝缘工具"],
+    "steps": [
+      {"step": 1, "content": "办理高压作业票，确认作业许可", "tip": ""},
+      {"step": 2, "content": "高压柜逐级断电、分闸闭锁", "tip": ""},
+      {"step": 3, "content": "使用验电器逐相验电，确认无残留电压", "tip": ""},
+      {"step": 4, "content": "悬挂接地线，设置安全警示围挡", "tip": ""},
+      {"step": 5, "content": "开展柜内除尘、接线、元件检修作业", "tip": ""},
+      {"step": 6, "content": "作业完毕拆除防护设施，核查无误后合闸送电", "tip": ""}
+    ],
+    "risk_note": "作业人员必须持高压作业资质上岗，专人监护；严格执行停电、验电、接地、挂牌、围挡流程；严禁带电开盖、跨越安全距离作业；作业完毕清点工具，杜绝杂物遗留柜内引发短路故障。",
+    "source": "official"
+  },
+  {
+    "title": "设备挂牌上锁（LOTO）",
+    "device_type": "安全",
+    "tag": "安全·LOTO",
+    "difficulty": 2,
+    "duration_min": 15,
+    "applicable_devices": "所有机电、液压、电气待检修设备",
+    "required_tools": ["安全锁具", "禁止合闸警示牌", "作业标识牌"],
+    "steps": [
+      {"step": 1, "content": "停止设备运行，关闭总电源及介质阀门", "tip": ""},
+      {"step": 2, "content": "确认设备完全停机、无残余能量", "tip": ""},
+      {"step": 3, "content": "对电源开关、阀门手柄执行上锁操作", "tip": ""},
+      {"step": 4, "content": "悬挂「禁止合闸、正在检修」警示牌", "tip": ""},
+      {"step": 5, "content": "核对锁具、标识无误，留存上锁记录", "tip": ""},
+      {"step": 6, "content": "作业结束后，专人解锁摘牌，恢复设备状态", "tip": ""}
+    ],
+    "risk_note": "谁上锁、谁解锁，严禁他人代解；必须切断设备所有能源输入（电、液、气）；锁具标识清晰，注明作业人、作业时间；未完成检修严禁提前摘牌解锁。",
+    "source": "official"
+  },
+  {
+    "title": "有限空间作业规范",
+    "device_type": "安全",
+    "tag": "安全·有限空间",
+    "difficulty": 4,
+    "duration_min": 60,
+    "applicable_devices": "储罐、管道、井下、密闭舱体等有限空间",
+    "required_tools": ["气体检测仪", "通风设备", "安全绳", "救生三脚架", "应急呼吸器"],
+    "steps": [
+      {"step": 1, "content": "办理有限空间作业票，落实专人监护", "tip": ""},
+      {"step": 2, "content": "隔离作业空间，切断所有能源、介质连通", "tip": ""},
+      {"step": 3, "content": "开启通风设备充分置换空间气体", "tip": ""},
+      {"step": 4, "content": "检测氧含量、有毒有害气体、可燃气体浓度", "tip": ""},
+      {"step": 5, "content": "指标合格后，作业人员佩戴防护装备入场作业", "tip": ""},
+      {"step": 6, "content": "作业全程实时监测，完工清点人员工具、封闭空间", "tip": ""}
+    ],
+    "risk_note": "无作业票、无监护、未检测合格严禁入场；作业全程保持持续通风，定时复测气体；监护人员全程在岗，不得离岗脱岗；配备应急救援器材，严禁盲目施救。",
+    "source": "official"
+  }
+]

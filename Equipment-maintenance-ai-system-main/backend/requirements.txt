@@ -1,0 +1,18 @@
+fastapi>=0.100
+uvicorn[standard]>=0.20
+sqlalchemy>=2.0
+pydantic>=1.10,<3
+pydantic-settings>=2.0
+python-dotenv>=1.0
+requests>=2.28
+openai>=1.0
+passlib[bcrypt]>=1.7
+python-jose[cryptography]>=3.3
+
+# === 模型接入新增依赖 ===
+# 文档/图片上传（FastAPI UploadFile）
+python-multipart>=0.0.9
+# 知识库 PDF 解析
+pypdf>=4.0
+# 检索倒排索引中文分词
+jieba>=0.42.1
