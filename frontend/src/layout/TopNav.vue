@@ -635,11 +635,7 @@ export default {
     },
     goNotifCenter() {
       this.notifOpen = false
-      if (this.user && this.user.role === 'worker') {
-        this.$router.push({ path: '/desk', query: { tab: 'contrib' } })
-      } else {
-        this.$router.push({ path: '/admin', query: { tab: 'knowledge', kr: 'pending' } })
-      }
+      this.$router.push('/notifications')
     },
     notifIcon(type) {
       switch (type) {

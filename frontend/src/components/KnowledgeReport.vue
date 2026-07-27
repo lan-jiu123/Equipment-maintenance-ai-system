@@ -154,6 +154,23 @@
             ></textarea>
           </div>
 
+          <div class="kr-row">
+            <label class="kr-label">
+              附件上传
+              <span class="label-hint">选填，支持 JPG/PNG/WebP/PDF，单文件不超过 10MB</span>
+            </label>
+            <label class="kr-file-picker">
+              <input type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" @change="handleFiles" />
+              <span>📎 选择附件</span>
+            </label>
+            <div v-if="files.length" class="kr-file-list">
+              <div v-for="(file, index) in files" :key="file.name + '-' + index" class="kr-file-item">
+                <span>{{ file.name }} · {{ formatFileSize(file.size) }}</span>
+                <button type="button" @click="removeFile(index)">移除</button>
+              </div>
+            </div>
+          </div>
+
           <div v-if="sourceHint" class="kr-source-hint">
             <span class="src-tag">{{ sourceHint }}</span>
             此报告将自动关联来源信息
@@ -190,6 +207,7 @@ export default {
     return {
       submitting: false,
       errMsg: '',
+      files: [],
       form: {
         type: 'case',
         title: '',
@@ -225,6 +243,7 @@ export default {
       if (nv) {
         this.submitting = false
         this.errMsg = ''
+        this.files = []
         this.form = {
           type: (this.preset && this.preset.type) || 'case',
           title: (this.preset && this.preset.title) || '',
@@ -241,6 +260,37 @@ export default {
     }
   },
   methods: {
+    handleFiles(event) {
+      const selected = Array.from(event.target.files || [])
+      const errors = []
+      const okTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+      const okExt = /\.(jpe?g|png|webp|pdf)$/i
+      for (const file of selected) {
+        if (!(okTypes.includes((file.type || '').toLowerCase()) || okExt.test(file.name))) {
+          errors.push(`${file.name}：仅支持 JPG/PNG/WebP/PDF`)
+          continue
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          errors.push(`${file.name}：超过 10MB`)
+          continue
+        }
+        if (this.files.find(item => item.name === file.name && item.size === file.size)) {
+          errors.push(`${file.name}：已经选择过`)
+          continue
+        }
+        this.files.push(file)
+      }
+      this.errMsg = errors.join('；')
+      event.target.value = ''
+    },
+    removeFile(index) {
+      this.files.splice(index, 1)
+    },
+    formatFileSize(size) {
+      return size >= 1024 * 1024
+        ? (size / 1024 / 1024).toFixed(1) + ' MB'
+        : Math.max(1, Math.round(size / 1024)) + ' KB'
+    },
     handleClose() {
       if (this.submitting) return
       this.$emit('update:visible', false)
@@ -255,7 +305,7 @@ export default {
       this.submitting = true
       try {
         const user = getUser()
-        const rec = await submitReport({ ...this.form }, user, this.source)
+        const rec = await submitReport({ ...this.form }, user, this.source, this.files)
         this.$emit('submitted', rec)
         this.$emit('update:visible', false)
       } catch (e) {
@@ -299,6 +349,11 @@ export default {
 .kr-icon { font-size: 1.75rem; line-height: 1; }
 .kr-title { font-size: 1.0625rem; font-weight: 600; color: var(--text-primary); }
 .kr-sub { font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px; max-width: 440px; line-height: 1.5; }
+.kr-file-picker { display:inline-flex; align-items:center; justify-content:center; width:max-content; padding:9px 14px; border:1px dashed var(--primary); border-radius:8px; color:var(--primary); cursor:pointer; }
+.kr-file-picker input { display:none; }
+.kr-file-list { display:flex; flex-direction:column; gap:7px; margin-top:8px; }
+.kr-file-item { display:flex; justify-content:space-between; gap:12px; padding:8px 10px; border-radius:7px; background:rgba(255,255,255,.04); color:var(--text-secondary); font-size:.75rem; }
+.kr-file-item button { border:0; background:transparent; color:var(--danger); cursor:pointer; }
 
 .kr-close {
   width: 32px; height: 32px;

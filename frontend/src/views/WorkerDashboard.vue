@@ -83,10 +83,7 @@
           <span class="quick-icon">📚</span>
           <span class="quick-label">我要贡献方案</span>
           <span class="quick-desc">提交实践经验，帮助更多同事</span>
-          <span class="quick-cta contrib-cta">
-            <b v-if="myStats.pending">{{ myStats.pending }} 已提交</b>
-            <span v-else>去贡献 →</span>
-          </span>
+          <span class="quick-cta contrib-cta">去贡献 →</span>
         </button>
         <router-link to="/guide" class="quick-card card">
           <span class="quick-icon">📋</span>
@@ -181,8 +178,8 @@
             <h2 class="section-title"><span class="title-icon">🏅</span>本月团队榜单</h2>
           </div>
           <div class="rank-list">
-            <div v-for="(r, i) in ranking" :key="r.name" class="rank-item" :class="{ me: r.me }">
-              <div class="rank-no" :class="'r' + (i + 1)">{{ i + 1 }}</div>
+            <div v-for="r in ranking" :key="r.user_id || r.name" class="rank-item" :class="{ me: r.me }">
+              <div class="rank-no" :class="'r' + r.rank">{{ r.rank }}</div>
               <div class="rank-av">{{ r.name.charAt(0) }}</div>
               <div class="rank-info">
                 <div class="rank-name">{{ r.name }}<span v-if="r.me" class="me-tag">我</span></div>
@@ -221,7 +218,7 @@
     <div v-if="reportOpen" class="modal-mask" @click="reportOpen = false">
       <div class="modal-card card" @click.stop>
         <div class="modal-head">
-          <h3>提交维修报告：{{ orderForReport && orderForReport.title }}</h3>
+          <h3>完成工单：{{ orderForReport && orderForReport.title }}</h3>
           <button class="modal-close" @click="reportOpen = false" type="button">✕</button>
         </div>
         <div class="modal-body">
@@ -249,8 +246,8 @@
               <span v-if="finishForm.contrib" class="cc-check">✓</span>
             </span>
             <span class="cc-text">
-              <b>📝 此方案已验证有效，同步贡献给知识库</b>
-              <em>由管理员审核后入库案例库 / 作业指导，帮助更多同事</em>
+              <b>🧪 AI 未能解决，我通过现场实践完成了该工单</b>
+              <em>勾选后生成知识实践报告并通知管理员审核；不勾选仅保存完成方案</em>
             </span>
           </label>
           <div v-if="finishErr" class="kr-err">{{ finishErr }}</div>
@@ -258,7 +255,7 @@
         <div class="modal-foot">
           <button class="btn btn-outline" @click="reportOpen = false">取消</button>
           <button class="btn btn-success" @click="fakeSubmit" :disabled="finishSubmitting">
-            {{ finishSubmitting ? '提交中…' : '确认提交' }}
+            {{ finishSubmitting ? '提交中…' : (finishForm.contrib ? '完成并提交知识报告' : '确认完成工单') }}
           </button>
         </div>
       </div>
@@ -318,17 +315,16 @@
           <!-- 附件上传 -->
           <div class="fault-row">
             <label class="fault-label">附件上传（选填，多文件，单文件≤10MB）</label>
-            <div class="attach-area">
-              <label class="btn btn-outline btn-xs attach-picker">
-                📷 选择文件
+            <div class="fault-attach-area">
+              <label class="fault-attach-picker">
+                <span>📎 选择附件</span>
                 <input ref="faultAttachInput" type="file" multiple accept="image/jpeg,image/png,image/webp,application/pdf" @change="handleFaultAttach" />
               </label>
-              <span class="attach-hint">{{ faultAttachFiles.length }} 个文件已选</span>
             </div>
-            <div v-if="faultAttachFiles.length" class="attach-list">
-              <div v-for="(f, fi) in faultAttachFiles" :key="fi" class="attach-item">
-                <span class="attach-name">{{ f.name }}</span>
-                <button type="button" class="btn btn-xs btn-danger" @click="removeAttach(fi)">删除</button>
+            <div v-if="faultAttachFiles.length" class="fault-attach-list">
+              <div v-for="(f, fi) in faultAttachFiles" :key="f.name + '-' + fi" class="fault-attach-item">
+                <span class="fault-attach-name">📄 {{ f.name }} · {{ formatFaultFileSize(f.size) }}</span>
+                <button type="button" class="fault-attach-remove" @click="removeAttach(fi)">移除</button>
               </div>
             </div>
           </div>
@@ -385,7 +381,7 @@ import { fetchUserStats, getUserStats } from '../utils/knowledge'
 import KnowledgeReport from '../components/KnowledgeReport.vue'
 import {
   listTicketsApi, acceptTicketApi, completeTicketApi, submitReportApi,
-  listDevicesApi, reportFaultApi
+  listDevicesApi, reportFaultApi, getTeamRankingApi
 } from '../utils/api'
 import { toast as _toast } from '../utils/request'
 
@@ -471,10 +467,11 @@ export default {
       _hydrating: true,
       _refreshTick: 0,
       allTickets: [],
+      teamRanking: [],
       meId: null,
       reportOpen: false,
       orderForReport: null,
-      finishForm: { solution: '', parts: '', hours: '', contrib: true },
+      finishForm: { solution: '', parts: '', hours: '', contrib: false },
       finishSubmitting: false,
       finishErr: '',
       modalOpen: false,
@@ -509,7 +506,8 @@ export default {
     ongoingMine() { return this.allTickets.filter(t => t.status === 'ongoing').length },
     highUrgent() { return this.myActive.filter(t => t.priority === 'high').length },
     doneMine() {
-      return this.allTickets.filter(t => t.status === 'completed' || t.status === 'done').length
+      const me = this.teamRanking.find(row => row.me)
+      return me ? me.done : 0
     },
     avgTime() {
       const done = this.allTickets.filter(t => t.status === 'completed' || t.status === 'done')
@@ -530,15 +528,14 @@ export default {
       return Math.round(ok / done.length * 100)
     },
     teamAvg() {
-      return Math.max(10, Math.round(this.doneMine * 0.8))
+      if (!this.teamRanking.length) return 0
+      const total = this.teamRanking.reduce((sum, worker) => sum + Number(worker.done || 0), 0)
+      return Math.round(total / this.teamRanking.length)
     },
-    totalWorkers() { return 8 },
+    totalWorkers() { return this.teamRanking.length },
     rank() {
-      const me = this.doneMine
-      let better = 0
-      const seed = [34, 28, 25, 22, 20, 17, 15, 12]
-      for (const s of seed) if (s > me) better++
-      return Math.min(8, better + 1)
+      const me = this.teamRanking.find(row => row.me)
+      return me ? me.rank : '-'
     },
     todoTabs() {
       const all = this.myActive.length
@@ -558,16 +555,11 @@ export default {
       return this.todoList.slice(s, s + this.size)
     },
     ranking() {
-      const me = this.displayName
-      const arr = [
-        { name: '赵工',   skill: '输送 / 焊接',     done: 34 },
-        { name: me,       skill: '旋转机械 / 液压', done: this.doneMine, me: true },
-        { name: '王师傅', skill: '液压 / 润滑',     done: 25 },
-        { name: '钱师傅', skill: '仪表 / 校准',     done: 22 },
-        { name: '孙师傅', skill: '电气 / 变频器',   done: 20 }
-      ]
-      arr.sort((a, b) => b.done - a.done)
-      return arr
+      if (this.teamRanking.length <= 5) return this.teamRanking
+      const top = this.teamRanking.slice(0, 5)
+      const me = this.teamRanking.find(row => row.me)
+      if (me && !top.some(row => row.me)) top[4] = me
+      return top
     },
     recentDone() {
       const done = this.allTickets.filter(t => t.status === 'completed' || t.status === 'done')
@@ -587,7 +579,8 @@ export default {
     try {
       await Promise.all([
         this.refreshStats(),
-        this.loadAll()
+        this.loadAll(),
+        this.loadTeamRanking()
       ])
     } finally {
       this._hydrating = false
@@ -602,6 +595,13 @@ export default {
     this.timer = setInterval(this.updateTime, 1000)
   },
   methods: {
+    async loadTeamRanking() {
+      try {
+        this.teamRanking = await getTeamRankingApi() || []
+      } catch (_) {
+        this.teamRanking = []
+      }
+    },
     async refreshStats({ force = false } = {}) {
       const u = getUser()
       const username = (u && u.username) || 'worker'
@@ -663,7 +663,7 @@ export default {
     },
     submitReport(o) {
       this.orderForReport = o
-      this.finishForm = { solution: '', parts: '', hours: '', contrib: true }
+      this.finishForm = { solution: '', parts: '', hours: '', contrib: false }
       this.finishErr = ''
       this.reportOpen = true
     },
@@ -705,8 +705,11 @@ export default {
             if (resp && resp.rid) contribMsg = '（知识报告 ' + resp.rid + ' 已提交审核）'
           } catch (e2) { /* 静默 */ contribMsg = '（知识报告提交失败，可稍后手动上报）' }
         }
-        _toast('工单完成上报 ' + contribMsg, 'success')
-        this.toast = '工单完成上报 ' + contribMsg
+        const successText = this.finishForm.contrib
+          ? '工单已完成，知识实践报告已提交审核 ' + contribMsg
+          : '工单已完成，完成方案已保存'
+        _toast(successText, 'success')
+        this.toast = successText
         setTimeout(() => (this.toast = ''), 4000)
         this.reportOpen = false
         setTimeout(() => this.loadAll(), 400)
@@ -802,18 +805,35 @@ export default {
     async handleFaultAttach(event) {
       const files = Array.from(event.target.files || [])
       const okTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+      const okExt = /\.(jpe?g|png|webp|pdf)$/i
+      const errors = []
       for (const f of files) {
-        if (!okTypes.includes(f.type)) { this.faultErr = '仅支持 JPG/PNG/WebP/PDF'; continue }
-        if (f.size > 10 * 1024 * 1024) { this.faultErr = '文件不能超过 10MB'; continue }
-        if (!this.faultAttachFiles.find(x => x.name === f.name && x.size === f.size)) {
-          // Object.freeze 防止 Vue 2 响应式系统破坏 File 对象导致上传失败
-          this.faultAttachFiles.push(Object.freeze(f))
+        // 部分 Windows 浏览器不会为 PDF 返回 MIME，文件扩展名也作为兼容判断。
+        if (!(okTypes.includes((f.type || '').toLowerCase()) || okExt.test(f.name))) {
+          errors.push(`${f.name}：仅支持 JPG/PNG/WebP/PDF`)
+          continue
         }
+        if (f.size > 10 * 1024 * 1024) {
+          errors.push(`${f.name}：文件不能超过 10MB`)
+          continue
+        }
+        if (this.faultAttachFiles.find(x => x.name === f.name && x.size === f.size)) {
+          errors.push(`${f.name}：已经选择过`)
+          continue
+        }
+        // Object.freeze 防止响应式系统破坏 File 对象导致上传失败
+        this.faultAttachFiles.push(Object.freeze(f))
       }
-      this.faultErr = ''
-      if (this.$refs.faultAttachInput) this.$refs.faultAttachInput.value = ''
+      this.faultErr = errors.join('；')
+      // 必须清空 input，否则删除后再次选择同一文件不会触发 change。
+      if (event.target) event.target.value = ''
     },
     removeAttach(idx) { this.faultAttachFiles.splice(idx, 1) },
+    formatFaultFileSize(size) {
+      return size >= 1024 * 1024
+        ? (size / 1024 / 1024).toFixed(1) + ' MB'
+        : Math.max(1, Math.round(size / 1024)) + ' KB'
+    },
     async submitFaultReport() {
       this.faultErr = ''
       if (!this.faultForm.name.trim()) { this.faultErr = '请填写设备名称'; return }
@@ -893,9 +913,13 @@ export default {
   transition: all var(--duration) var(--ease);
 }
 .quick-card:hover { transform: translateY(-2px); border-color: var(--accent-green); box-shadow: 0 8px 24px rgba(16,185,129,0.08); }
-.fault-card { border-left: 3px solid #ffc107; }
-.fault-card:hover { border-color: #ffc107; box-shadow: 0 8px 24px rgba(255,193,7,0.15); }
-.fault-cta { color: #ffc107; }
+.fault-card { border: 1px solid var(--border-subtle); }
+.fault-card:hover,
+.contrib-card:hover {
+  border-color: #ffc107;
+  box-shadow: 0 8px 24px rgba(255,193,7,0.15);
+}
+.fault-card .fault-cta { color: #ffc107; }
 .fault-modal { max-width: 560px; background: var(--bg-surface) !important; }
 .fault-modal .modal-body { overflow-y: auto; flex: 1; min-height: 0; }
 .device-select-row { position: relative; }
@@ -912,22 +936,23 @@ export default {
 .fault-device-info { background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; }
 .fault-static { font-size: 0.8125rem; color: var(--text-primary); padding: 6px 0; }
 .fault-auto-info { display: flex; gap: 16px; font-size: 0.75rem; color: var(--text-muted); padding: 8px 0; }
-.attach-area { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.attach-picker { position: relative; overflow: hidden; cursor: pointer; margin: 0; }
-.attach-picker input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-.attach-hint { font-size: 0.75rem; color: var(--text-muted); }
+.fault-attach-area { display:flex; align-items:center; margin-top:2px; }
+.fault-attach-picker { display:inline-flex; align-items:center; justify-content:center; width:max-content; padding:9px 14px; border:1px dashed var(--primary); border-radius:8px; color:var(--primary); cursor:pointer; transition:all .18s ease; }
+.fault-attach-picker:hover { background:var(--primary-subtle); border-color:var(--primary); }
+.fault-attach-picker input[type=file] { display:none; }
+.fault-attach-list { display:flex; flex-direction:column; gap:7px; margin-top:8px; }
+.fault-attach-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 10px; border-radius:7px; background:rgba(255,255,255,.04); color:var(--text-secondary); font-size:.75rem; }
+.fault-attach-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fault-attach-remove { flex:none; border:0; background:transparent; color:var(--accent-red); cursor:pointer; font-size:.75rem; padding:2px 4px; }
+.fault-attach-remove:hover { text-decoration:underline; }
 .btn-xs { padding: 4px 10px; font-size: 0.75rem; }
 .quick-icon { font-size: 1.75rem; color: var(--accent-green); margin-bottom: 4px; }
 .quick-label { font-size: 0.9375rem; font-weight: 600; }
 .quick-desc { font-size: 0.8125rem; color: var(--text-secondary); line-height: 1.5; flex: 1; }
 .quick-cta { font-size: 0.75rem; color: var(--accent-green); font-weight: 500; margin-top: 6px; }
 .contrib-card {
-  border: 1px solid rgba(255, 165, 2, 0.3);
-  background: linear-gradient(135deg, rgba(255, 165, 2, 0.08), rgba(0, 212, 255, 0.05));
-}
-.contrib-card:hover {
-  border-color: rgba(255, 165, 2, 0.5);
-  box-shadow: 0 8px 24px rgba(255, 165, 2, 0.12);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card, rgba(255,255,255,0.02));
 }
 .contrib-card .quick-icon { color: var(--accent-orange); }
 .contrib-card .quick-cta { color: var(--accent-orange); }

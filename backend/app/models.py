@@ -163,6 +163,10 @@ class KnowledgeReport(Base):
 
     submitter = relationship("User", back_populates="reports", foreign_keys=[submitter_id])
     reviewer = relationship("User", back_populates="reviewed_reports", foreign_keys=[reviewer_id])
+    attachments = relationship(
+        "ReportAttachment", back_populates="report",
+        cascade="all, delete-orphan", passive_deletes=True
+    )
 
     synced_case = relationship(
         "Case", back_populates="source_report",
@@ -271,3 +275,17 @@ class DeviceFaultAttachment(Base):
     uploaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     device = relationship("Device", back_populates="fault_attachments")
+
+
+class ReportAttachment(Base):
+    __tablename__ = "report_attachments"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    report_id = Column(Integer, ForeignKey("knowledge_reports.id", ondelete="CASCADE"), nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    file_path = Column(String(512), nullable=False)
+    file_size = Column(Integer, nullable=False, default=0)
+    mime_type = Column(String(64), nullable=True)
+    uploaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    report = relationship("KnowledgeReport", back_populates="attachments")

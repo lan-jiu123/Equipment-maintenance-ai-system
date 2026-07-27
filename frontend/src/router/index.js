@@ -15,6 +15,7 @@ import WorkerDashboard from '../views/WorkerDashboard.vue'
 import Tickets from '../views/Tickets.vue'
 import DeviceMgmt from '../views/DeviceMgmt.vue'
 import UserMgmt from '../views/UserMgmt.vue'
+import Notifications from '../views/Notifications.vue'
 
 export const ROLE_HOME = {
   sysadmin: '/home',
@@ -43,6 +44,7 @@ const routes = [
   { path: '/guide', component: Guide, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '作业指导' } },
   { path: '/case', component: Case, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '案例库' } },
   { path: '/graph', component: KnowledgeGraph, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '知识图谱' } },
+  { path: '/notifications', component: Notifications, meta: { roles: ['sysadmin', 'manager', 'worker'], label: '消息中心' } },
   { path: '/profile', component: Profile, meta: { roles: ['sysadmin', 'manager', 'worker'] } },
   { path: '/password', component: Password, meta: { roles: ['sysadmin', 'manager', 'worker'] } },
   { path: '/logs', component: Logs, meta: { roles: ['sysadmin', 'manager'] } }

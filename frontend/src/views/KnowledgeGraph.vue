@@ -7,7 +7,9 @@
         <p class="page-sub">设备 · 故障 · 原因 · 解决方案 的关联关系网络</p>
       </div>
       <div class="header-actions">
-        <button class="btn btn-outline" @click="loadGraph">刷新图谱</button>
+        <button class="btn btn-outline" @click="loadGraph(true)" :disabled="loading">
+          {{ loading ? '刷新中…' : '刷新图谱' }}
+        </button>
         <button v-if="!isWorker" class="btn btn-primary" @click="rebuildGraph" :disabled="loading">重建图谱</button>
       </div>
     </header>
@@ -46,7 +48,18 @@
       </div>
     </div>
 
-    <div class="graph-container" ref="chartRef"></div>
+    <div class="graph-stage">
+      <div class="graph-container" ref="chartRef" :class="{ 'is-refreshing': loading }"></div>
+      <transition name="graph-loading">
+        <div v-if="loading" class="graph-loading-mask">
+          <span class="graph-spinner"></span>
+          <span>正在刷新知识图谱…</span>
+        </div>
+      </transition>
+    </div>
+    <transition name="graph-notice">
+      <div v-if="refreshNotice" class="graph-refresh-notice">{{ refreshNotice }}</div>
+    </transition>
 
     <div class="graph-info" v-if="selectedNode">
       <h3>节点详情</h3>
@@ -72,11 +85,13 @@ import { getUser } from '../utils/auth'
 const chartRef = ref(null)
 let chartInstance = null
 let freezeTimer = null
+let noticeTimer = null
 
 const loading = ref(false)
 const graphData = ref({ nodes: [], links: [] })
 const selectedNode = ref(null)
 const activeTag = ref("all")
+const refreshNotice = ref('')
 
 // tag 切换 tab（全部 + 5 个故障分类）
 const tagTabs = [
@@ -116,21 +131,34 @@ function getTypeColor(type) {
   return t ? t.color : '#718096'
 }
 
-async function loadGraph() {
+async function loadGraph(showFeedback = false) {
+  if (loading.value) return
+  const startedAt = Date.now()
+  loading.value = true
   try {
     const params = activeTag.value === 'all' ? {} : { tag: activeTag.value }
-    const data = await request('/api/knowledge/graph', { params })
-    graphData.value = data
+    const data = await request('/knowledge/graph', { params })
+    graphData.value = data || { nodes: [], links: [] }
+    selectedNode.value = null
     renderChart()
-    refreshTagCounts()
+    await refreshTagCounts()
+    if (showFeedback) {
+      const remaining = Math.max(0, 500 - (Date.now() - startedAt))
+      if (remaining) await new Promise(resolve => setTimeout(resolve, remaining))
+      refreshNotice.value = `✓ 图谱已刷新：${graphData.value.nodes.length} 个节点，${graphData.value.links.length} 条关系`
+      if (noticeTimer) clearTimeout(noticeTimer)
+      noticeTimer = setTimeout(() => { refreshNotice.value = '' }, 2200)
+    }
   } catch (e) {
     // request 已内置 401 跳登录 + toast 提示，这里无需重复处理
+  } finally {
+    loading.value = false
   }
 }
 
 async function refreshTagCounts() {
   try {
-    const data = await request('/api/knowledge/graph/stats')
+    const data = await request('/knowledge/graph/stats')
     tagCounts.value = data || {}
   } catch (e) {
     // ignore
@@ -145,9 +173,10 @@ function switchTag(tag) {
 }
 
 async function rebuildGraph() {
+  if (loading.value) return
   loading.value = true
   try {
-    const data = await request('/api/knowledge/graph/rebuild', { method: 'POST' })
+    const data = await request('/knowledge/graph/rebuild', { method: 'POST' })
     graphData.value = data
     renderChart()
     refreshTagCounts()
@@ -159,7 +188,11 @@ async function rebuildGraph() {
 }
 
 function renderChart() {
-  if (!chartInstance || !graphData.value.nodes.length) return
+  if (!chartInstance) return
+  if (!graphData.value.nodes.length) {
+    chartInstance.clear()
+    return
+  }
 
   // 节点大小按类型分层：设备 > 故障 > 原因/解决方案 > 案例
   const NODE_SIZE = { '设备': 40, '故障': 30, '原因': 24, '解决方案': 24, '案例': 18 }
@@ -195,6 +228,7 @@ function renderChart() {
     itemStyle: { color: t.color }
   }))
 
+  chartInstance.clear()
   chartInstance.setOption({
     tooltip: {
       trigger: 'item',
@@ -318,6 +352,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   if (freezeTimer) clearTimeout(freezeTimer)
+  if (noticeTimer) clearTimeout(noticeTimer)
   chartInstance?.dispose()
 })
 </script>
@@ -343,13 +378,40 @@ onUnmounted(() => {
 .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
 .legend-label { font-size: 0.75rem; color: var(--text-secondary); }
 
+.graph-stage { position: relative; }
 .graph-container {
   width: 100%;
   height: 500px;
   background: var(--bg-card);
   border-radius: var(--radius);
   border: 1px solid var(--border-subtle);
+  transition: filter .2s ease, opacity .2s ease;
 }
+.graph-container.is-refreshing { filter: blur(1px); opacity: .58; }
+.graph-loading-mask {
+  position: absolute; inset: 0; z-index: 3;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; color: var(--text-primary); font-size: .875rem; font-weight: 600;
+  background: rgba(5, 11, 31, .28); backdrop-filter: blur(1px);
+  border-radius: var(--radius);
+}
+.graph-spinner {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 3px solid rgba(59,130,246,.2); border-top-color: var(--primary);
+  animation: graph-spin .75s linear infinite;
+  box-shadow: 0 0 18px rgba(59,130,246,.2);
+}
+@keyframes graph-spin { to { transform: rotate(360deg); } }
+.graph-loading-enter-active, .graph-loading-leave-active { transition: opacity .18s ease; }
+.graph-loading-enter-from, .graph-loading-leave-to { opacity: 0; }
+.graph-refresh-notice {
+  width: max-content; max-width: 100%; margin: 12px auto 0;
+  padding: 9px 16px; border: 1px solid rgba(16,185,129,.3);
+  border-radius: 999px; background: rgba(16,185,129,.1);
+  color: var(--accent-green); font-size: .8rem; font-weight: 600;
+}
+.graph-notice-enter-active, .graph-notice-leave-active { transition: all .2s ease; }
+.graph-notice-enter-from, .graph-notice-leave-to { opacity: 0; transform: translateY(-5px); }
 
 .graph-info {
   margin-top: 16px;
