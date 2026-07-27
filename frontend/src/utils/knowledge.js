@@ -1,6 +1,7 @@
 import {
   listReportsApi,
   submitReportApi,
+  uploadReportAttachmentApi,
   reviewReportApi
 } from './api'
 import { getUser } from './auth'
@@ -302,7 +303,7 @@ export async function fetchUserReports(username) {
   return getReportsByUser(username)
 }
 
-export async function submitReport(data, user, source = REPORT_SOURCE.MANUAL) {
+export async function submitReport(data, user, source = REPORT_SOURCE.MANUAL, files = []) {
   const u = user || getUser() || {}
   const payload = {
     title: String(data.title || '').trim(),
@@ -345,7 +346,14 @@ export async function submitReport(data, user, source = REPORT_SOURCE.MANUAL) {
   _writeCache(list)
 
   try {
-    const serverRec = await submitReportApi(payload)
+    let serverRec = await submitReportApi(payload)
+    for (const file of files) {
+      await uploadReportAttachmentApi(serverRec.id, file)
+    }
+    if (files.length) {
+      const refreshed = await listReportsApi({ page: 1, size: 20000, scope: 'mine' })
+      serverRec = ((refreshed && refreshed.items) || []).find(r => Number(r.id) === Number(serverRec.id)) || serverRec
+    }
     const updated = _mergeWithCache([serverRec])
     const idx = updated.findIndex(r => String(r.rid || r.id) === String(serverRec.rid || serverRec.id))
     return idx >= 0 ? updated[idx] : serverRec

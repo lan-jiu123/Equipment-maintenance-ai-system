@@ -33,7 +33,7 @@
                     <div class="fault-attach-list">
                       <div v-for="att in detailDevice.fault_attachments" :key="att.id" class="fault-attach-item">
                         <span class="fault-attach-name">📎 {{ att.filename }}</span>
-                        <a class="fault-attach-view" :href="downloadDeviceFaultAttachUrl(detailDevice.id, att.id)" target="_blank">查看</a>
+                        <button class="fault-attach-view" @click="viewFaultAttachment(detailDevice.id, att.id)" type="button">查看</button>
                         <button class="fault-attach-del" @click="deleteFaultAttach(detailDevice.id, att.id)" type="button">删除</button>
                       </div>
                     </div>
@@ -184,8 +184,8 @@
 <script>
 import { toast } from '../utils/request'
 import {
-  listDevicesApi, deviceStatsApi, deleteDeviceApi,
-  downloadDeviceFaultAttachUrl, deleteDeviceFaultAttachApi
+  listDevicesApi, deviceStatsApi, getDeviceApi, deleteDeviceApi,
+  fetchDeviceFaultAttachmentApi, deleteDeviceFaultAttachApi
 } from '../utils/api'
 
 const STATUS_LABEL = {
@@ -373,6 +373,26 @@ export default {
         }
       } catch (e) {
         toast('删除失败：' + (e.message || '请重试'), 'error')
+      }
+    },
+    async viewFaultAttachment(deviceId, attachId) {
+      const previewWindow = window.open('about:blank', '_blank')
+      try {
+        const resp = await fetchDeviceFaultAttachmentApi(deviceId, attachId)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const blobUrl = URL.createObjectURL(await resp.blob())
+        if (previewWindow) {
+          previewWindow.location.replace(blobUrl)
+        } else {
+          const link = document.createElement('a')
+          link.href = blobUrl
+          link.target = '_blank'
+          link.click()
+        }
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
+      } catch (e) {
+        if (previewWindow) previewWindow.close()
+        toast('附件打开失败：' + (e.message || '请重试'), 'error')
       }
     }
   }

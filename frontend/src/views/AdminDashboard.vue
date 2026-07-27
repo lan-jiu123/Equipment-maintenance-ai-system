@@ -489,6 +489,15 @@
                 </span>
               </div>
             </div>
+            <div class="kr-field" v-if="selectedReport.attachments && selectedReport.attachments.length">
+              <div class="kr-field-label">附件（{{ selectedReport.attachments.length }}）</div>
+              <div class="kr-field-value">
+                <div v-for="att in selectedReport.attachments" :key="att.id" class="report-attach-row">
+                  <span>📎 {{ att.filename }}</span>
+                  <button class="btn btn-outline btn-xs" type="button" @click="viewReportAttachment(selectedReport.id, att.id)">查看</button>
+                </div>
+              </div>
+            </div>
             <div class="kr-field" v-if="selectedReport.review_remark">
               <div class="kr-field-label">{{ selectedReport.status === 'rejected' ? '驳回原因' : '审核备注' }}</div>
               <div class="kr-field-value kr-text" :class="{ reject: selectedReport.status === 'rejected' }">{{ selectedReport.review_remark }}</div>
@@ -616,8 +625,8 @@
 import { getUser } from '../utils/auth'
 import {
   listTicketsApi, assignTicketApi, createTicketApi, deleteTicketApi,
-  listReportsApi, reviewReportApi,
-  listUsersApi, userOptionsApi
+  listReportsApi, reviewReportApi, fetchReportAttachmentApi,
+  listUsersApi, userOptionsApi, listDevicesApi
 } from '../utils/api'
 import { toast as _toast } from '../utils/request'
 
@@ -745,7 +754,8 @@ export default {
       dispatchOpen: false,
       dispatchMode: 'assign',
       dispatchTicket: null,
-      dispatchForm: { title: '', device_name: '', level: 'mid', problem: '', assignee_id: '', remark: '' },
+      dispatchForm: { title: '', device_id: null, device_name: '', level: 'mid', problem: '', assignee_id: '', remark: '' },
+      _dispatchRouteKey: '',
       dispatchSubmitting: false,
       dispatchErr: '',
       previewOpen: false,
@@ -903,13 +913,57 @@ export default {
     window.removeEventListener('hashchange', this.resolveRouteTab)
   },
   methods: {
+    async viewReportAttachment(reportId, attachmentId) {
+      const previewWindow = window.open('about:blank', '_blank')
+      try {
+        const resp = await fetchReportAttachmentApi(reportId, attachmentId)
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const blobUrl = URL.createObjectURL(await resp.blob())
+        if (previewWindow) previewWindow.location.replace(blobUrl)
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
+      } catch (e) {
+        if (previewWindow) previewWindow.close()
+        this.showToast('附件打开失败：' + (e.message || '请重试'), false)
+      }
+    },
     resolveRouteTab() {
       const q = this.$route && this.$route.query
       if (!q) return
       if (q.tab === 'knowledge') this.activeMainTab = 'knowledge'
+      if (q.tab === 'repair') {
+        this.activeMainTab = 'order'
+        this._openRouteDeviceDispatch(String(q.device || ''))
+      }
       const kr = (q.kr || '').toString()
       if (kr && ['all', 'pending', 'approved', 'synced', 'rejected'].indexOf(kr) >= 0) {
         this.activeKrTab = kr
+      }
+    },
+    async _openRouteDeviceDispatch(deviceCode) {
+      const code = deviceCode.trim()
+      if (!code || this._dispatchRouteKey === code) return
+      this._dispatchRouteKey = code
+      try {
+        const page = await listDevicesApi({ page: 1, size: 50, keyword: code }) || {}
+        const device = (page.items || []).find(d => String(d.code) === code)
+        if (!device) {
+          this._dispatchRouteKey = ''
+          this.showToast('未找到需要派单的设备：' + code, false)
+          return
+        }
+        this.openDispatch()
+        this.dispatchForm = {
+          title: `设备故障：${device.code} ${device.name}`,
+          device_id: device.id,
+          device_name: `${device.code} ${device.name}`,
+          level: 'high',
+          problem: device.fault_desc || '设备故障待检修',
+          assignee_id: '',
+          remark: ''
+        }
+      } catch (e) {
+        this._dispatchRouteKey = ''
+        this.showToast('故障设备加载失败：' + (e.message || '请重试'), false)
       }
     },
     _pickRouteReport() {
@@ -1082,11 +1136,11 @@ export default {
       if (o) {
         this.dispatchMode = 'assign'
         this.dispatchTicket = o
-        this.dispatchForm = { title: o.title, device_name: o.device_name || '', level: o._levelKey || 'mid', problem: o.problem || '', assignee_id: o.assignee_id ? String(o.assignee_id) : '', remark: '' }
+        this.dispatchForm = { title: o.title, device_id: o.device_id || null, device_name: o.device_name || '', level: o._levelKey || 'mid', problem: o.problem || '', assignee_id: o.assignee_id ? String(o.assignee_id) : '', remark: '' }
       } else {
         this.dispatchMode = 'create'
         this.dispatchTicket = null
-        this.dispatchForm = { title: '', device_name: '', level: 'mid', problem: '', assignee_id: '', remark: '' }
+        this.dispatchForm = { title: '', device_id: null, device_name: '', level: 'mid', problem: '', assignee_id: '', remark: '' }
       }
       this.dispatchErr = ''
       this.dispatchOpen = true
@@ -1115,6 +1169,7 @@ export default {
         if (this.dispatchMode === 'create') {
           const payload = {
             title: f.title.trim(),
+            device_id: f.device_id || null,
             device_name: f.device_name.trim(),
             level: f.level,
             problem: f.problem.trim(),
