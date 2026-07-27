@@ -58,3 +58,5 @@ equipai-deploy1/
 
 # === Claude Code 个人记忆 ===
 .claude/
+
+.packages/

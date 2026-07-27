@@ -120,7 +120,7 @@
                 {{ t._op === 'accept' ? '接单中…' : '开始处理' }}
               </button>
               <button class="btn btn-success btn-xs" v-if="t.status === 'ongoing' || t.status === 'processing'" :disabled="t._op" @click="finish(t)">
-                {{ t._op === 'complete' ? '提交中…' : '完成 / 上报' }}
+                {{ t._op === 'complete' ? '提交中…' : '完成工单' }}
               </button>
               <button class="btn btn-outline btn-xs" v-else @click="view(t)">查看</button>
               <button class="btn btn-outline btn-xs guide-btn" :disabled="t._gop" @click="showGuideRecommend(t)" style="margin-left:4px;">📋 指导</button>
@@ -141,13 +141,63 @@
     </section>
 
     <transition name="fade">
+      <div v-if="detailVisible" class="finish-mask" @click.self="closeDetail">
+        <div class="finish-dialog ticket-detail-dialog card">
+          <div class="finish-header ticket-detail-header">
+            <div class="fh-title">
+              <span class="fh-icon">📋</span>
+              <div>
+                <div class="fh-big">工单详情</div>
+                <div class="fh-small">工单号：<b class="mono">{{ detailTicket && (detailTicket.code || detailTicket.id) }}</b></div>
+              </div>
+            </div>
+            <button class="kr-close" @click="closeDetail" type="button">✕</button>
+          </div>
+          <div v-if="detailTicket" class="finish-body ticket-detail-body">
+            <div class="ticket-detail-grid">
+              <div class="ticket-detail-item">
+                <span>设备</span><b>{{ detailTicket.device_name || '未关联' }}</b>
+              </div>
+              <div class="ticket-detail-item">
+                <span>故障等级</span><b>{{ detailTicket.level_label }}</b>
+              </div>
+              <div class="ticket-detail-item">
+                <span>工单状态</span><b>{{ detailTicket.status_label }}</b>
+              </div>
+              <div class="ticket-detail-item">
+                <span>创建时间</span><b>{{ detailTicket.createdText }}</b>
+              </div>
+            </div>
+            <div class="ticket-detail-section">
+              <div class="ticket-detail-label">工单标题</div>
+              <div class="ticket-detail-content">{{ detailTicket.title || '—' }}</div>
+            </div>
+            <div class="ticket-detail-section">
+              <div class="ticket-detail-label">问题描述</div>
+              <div class="ticket-detail-content">{{ detailTicket.problem || '—' }}</div>
+            </div>
+            <div v-if="detailTicket.solution" class="ticket-detail-section solution">
+              <div class="ticket-detail-label">解决方案</div>
+              <div class="ticket-detail-content">{{ detailTicket.solution }}</div>
+            </div>
+          </div>
+          <div class="kr-footer">
+            <div class="kr-actions">
+              <button class="btn btn-outline" @click="closeDetail" type="button">关闭</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <transition name="fade">
       <div v-if="finishVisible" class="finish-mask" @click.self="closeFinish">
         <div class="finish-dialog card">
           <div class="finish-header">
             <div class="fh-title">
               <span class="fh-icon">✅</span>
               <div>
-                <div class="fh-big">提交维修报告</div>
+                <div class="fh-big">完成工单</div>
                 <div class="fh-small">工单号：<b class="mono">{{ finishTicket && (finishTicket.code || finishTicket.id) }}</b> · 设备：{{ finishTicket && finishTicket.device_name }}</div>
               </div>
             </div>
@@ -178,8 +228,8 @@
                 <span v-if="finishForm.contrib" class="cc-check">✓</span>
               </span>
               <span class="cc-text">
-                <b>📝 此方案已验证有效，同步贡献给知识库</b>
-                <em>由管理员审核后入库案例库 / 作业指导，帮助更多同事</em>
+                <b>🧪 AI 未能解决，我通过现场实践完成了该工单</b>
+                <em>勾选后生成知识实践报告并通知管理员审核；不勾选仅保存完成方案</em>
               </span>
             </label>
           </div>
@@ -188,7 +238,7 @@
             <div class="kr-actions">
               <button class="btn btn-outline" @click="closeFinish" type="button">取消</button>
               <button class="btn btn-success" @click="submitFinish" type="button" :disabled="finishSubmitting">
-                {{ finishSubmitting ? '提交中…' : '提交报告' }}
+                {{ finishSubmitting ? '提交中…' : (finishForm.contrib ? '完成并提交知识报告' : '确认完成工单') }}
               </button>
             </div>
           </div>
@@ -415,7 +465,9 @@ export default {
       _refreshTick: 0,
       finishVisible: false,
       finishTicket: null,
-      finishForm: { solution: '', parts: '', hours: '', contrib: true },
+      detailVisible: false,
+      detailTicket: null,
+      finishForm: { solution: '', parts: '', hours: '', contrib: false },
       finishSubmitting: false,
       finishErr: '',
       toast: '',
@@ -546,23 +598,17 @@ export default {
     },
     finish(t) {
       this.finishTicket = t
-      this.finishForm = { solution: '', parts: '', hours: '', contrib: true }
+      this.finishForm = { solution: '', parts: '', hours: '', contrib: false }
       this.finishErr = ''
       this.finishVisible = true
     },
     view(t) {
-      const lines = [
-        '工单号：' + (t.code || t.id),
-        '标题：' + (t.title || '—'),
-        '设备：' + (t.device_name || '未关联'),
-        '等级：' + t.level_label,
-        '状态：' + t.status_label,
-        '创建：' + t.createdText,
-        '',
-        '问题描述：' + (t.problem || '—')
-      ]
-      if (t.solution) lines.push('', '解决方案：' + t.solution)
-      alert(lines.join('\n'))
+      this.detailTicket = t
+      this.detailVisible = true
+    },
+    closeDetail() {
+      this.detailVisible = false
+      this.detailTicket = null
     },
     closeFinish() {
       this.finishVisible = false
@@ -610,7 +656,9 @@ export default {
             if (resp && resp.rid) contrib = '（知识报告 ' + resp.rid + ' 已提交审核）'
           } catch (e2) { contrib = '（知识报告提交失败，可稍后手动上报）' }
         }
-        this.toast = '✅ 工单完成上报 ' + contrib
+        this.toast = this.finishForm.contrib
+          ? '✅ 工单已完成，知识实践报告已提交审核 ' + contrib
+          : '✅ 工单已完成，完成方案已保存'
         setTimeout(() => (this.toast = ''), 4000)
         this.finishVisible = false
         setTimeout(() => this.loadAll(), 400)
@@ -882,6 +930,34 @@ export default {
 .kr-close:hover { color: var(--accent-red); border-color: var(--accent-red); background: rgba(239,68,68,0.1); }
 
 .finish-body { padding: 20px 24px; overflow-y: auto; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.ticket-detail-dialog { background: var(--bg-surface); }
+.ticket-detail-header {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), transparent 60%);
+}
+.ticket-detail-body { gap: 18px; }
+.ticket-detail-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.ticket-detail-item {
+  display: flex; flex-direction: column; gap: 5px; padding: 12px 14px;
+  background: rgba(255,255,255,0.025); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+.ticket-detail-item span,
+.ticket-detail-label { font-size: 0.75rem; color: var(--text-muted); }
+.ticket-detail-item b { font-size: 0.875rem; color: var(--text-primary); font-weight: 600; }
+.ticket-detail-section {
+  padding: 14px 16px; background: rgba(255,255,255,0.025);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius);
+}
+.ticket-detail-section.solution {
+  background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.22);
+}
+.ticket-detail-label { margin-bottom: 7px; }
+.ticket-detail-content {
+  color: var(--text-primary); font-size: 0.875rem; line-height: 1.7;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
 .kr-row .kr-label { display: block; font-size: 0.8125rem; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
 .kr-label.required::before { content: '*'; color: var(--accent-red); margin-right: 4px; }
 .kr-row.kr-double { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

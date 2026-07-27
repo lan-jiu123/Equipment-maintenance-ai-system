@@ -54,7 +54,7 @@ for _fld in ("QWEN_API_KEY", "QWEN_TEXT_MODEL", "QWEN_VISION_MODEL",
 del _settings, _fld, _env_val
 from .database import Base, engine, get_db, init_database
 from .models import User, Device, Ticket, KnowledgeReport, Case, Guide, Notification, \
-    TicketAttachment, DeviceFaultAttachment, GuideExecution, \
+    TicketAttachment, DeviceFaultAttachment, ReportAttachment, GuideExecution, \
     NOTIFY_TYPE_REPORT_SUBMITTED, NOTIFY_TYPE_REPORT_APPROVED, NOTIFY_TYPE_REPORT_REJECTED, \
     NOTIFY_TYPE_REPORT_SYNCED, NOTIFY_TYPE_TICKET_ASSIGNED, NOTIFY_TYPE_TICKET_CREATED, \
     NOTIFY_TYPE_DEVICE_FAULT, NOTIFY_TYPE_SYSTEM, \
@@ -221,6 +221,7 @@ def _on_startup():
     try:
         seed_if_empty(db)
         _reseed_guides(db)
+        _backfill_notification_history_if_empty(db)
     finally:
         db.close()
     # 4. 模型接入：RAG 知识库表初始化 + 内置知识文档自动导入（幂等）
@@ -467,10 +468,20 @@ def login(form: LoginReq, db: Session = Depends(get_db)):
     if not username or not password:
         return fail("请输入账号和密码", 400)
 
+    def role_matches(actual_role: str) -> bool:
+        # 前端将 sysadmin 和 manager 统一展示为“维修管理员”。
+        if not role:
+            return True
+        if role == ROLE_MANAGER:
+            return actual_role in (ROLE_MANAGER, ROLE_SYSADMIN)
+        return role == actual_role
+
     # 1) 查数据库用户（阶段 A 后所有账号都在这里）
     user = db.query(User).filter(User.username == username).first()
     if user:
         if verify_password(password, user.password_hash):
+            if not role_matches(user.role):
+                return fail("所选登录身份与该账号角色不一致", 403)
             token, hours = create_access_token(user.username, user.role)
             return ok(LoginResp(
                 token=token, token_type="bearer",
@@ -482,6 +493,8 @@ def login(form: LoginReq, db: Session = Depends(get_db)):
     # 2) 兜底：如果数据库还没装成功（极端情况），走 users.py 的 fake_users 保证能登录
     u_fb = verify_user_fallback(username, password)
     if u_fb:
+        if not role_matches(u_fb["role"]):
+            return fail("所选登录身份与该账号角色不一致", 403)
         token, hours = create_access_token(u_fb["username"], u_fb["role"])
         return ok(LoginResp(
             token=token, token_type="bearer",
@@ -915,6 +928,11 @@ def _to_report_info(r: KnowledgeReport) -> ReportInfo:
         submit_time_ts=_ts(r.submit_time),
         reviewer_name=r.reviewer_name, review_remark=r.review_remark,
         review_time_ts=_ts(r.review_time), sync_time_ts=_ts(r.sync_time),
+        attachments=[
+            {"id": a.id, "filename": a.filename, "size": a.file_size,
+             "mime_type": a.mime_type, "uploaded_at_ts": _ts(a.uploaded_at)}
+            for a in (r.attachments or [])
+        ],
     )
 
 
@@ -1177,6 +1195,40 @@ def delete_device(device_id: int, current: User = Depends(get_current_user),
 # ============================================================
 # B-2. 工单管理 API
 # ============================================================
+
+@app.get("/api/tickets/team-ranking", response_model=ApiResp)
+def get_team_ranking(current: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Return this month's real completed-ticket ranking for all workers."""
+    now = _utcnow()
+    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    completed = dict(
+        db.query(Ticket.assignee_id, sqlalchemy_func.count(Ticket.id))
+        .filter(
+            Ticket.status == "done",
+            Ticket.assignee_id.isnot(None),
+            Ticket.finish_time >= month_start,
+        )
+        .group_by(Ticket.assignee_id)
+        .all()
+    )
+    workers = db.query(User).filter(User.role == ROLE_WORKER).all()
+    rows = []
+    for worker in workers:
+        skill = " / ".join(v for v in (worker.dept, worker.position) if v) or "设备维护"
+        rows.append({
+            "user_id": worker.id,
+            "username": worker.username,
+            "name": worker.fullname or worker.username,
+            "skill": skill,
+            "done": int(completed.get(worker.id, 0)),
+            "me": worker.id == current.id,
+        })
+    rows.sort(key=lambda row: (-row["done"], row["user_id"]))
+    for index, row in enumerate(rows):
+        row["rank"] = index + 1
+    return ok(rows)
+
 
 @app.get("/api/tickets", response_model=ApiResp[PageResp[TicketInfo]])
 def list_tickets(
@@ -1664,6 +1716,104 @@ def delete_attachment(ticket_id: int, attachment_id: int,
     return ok(None, "附件已删除")
 
 
+def _backfill_notification_history_if_empty(db: Session) -> None:
+    """Fill missing historical notifications without duplicating existing rows."""
+    existing = {
+        (row.user_id, row.type, row.related_id)
+        for row in db.query(Notification).all()
+    }
+    rows = []
+    admins = _admin_ids(db)
+    tickets = db.query(Ticket).all()
+    for ticket in tickets:
+        key = (ticket.assignee_id, NOTIFY_TYPE_TICKET_ASSIGNED, ticket.id)
+        if ticket.assignee_id and key not in existing:
+            rows.append(Notification(
+                user_id=ticket.assignee_id,
+                type=NOTIFY_TYPE_TICKET_ASSIGNED,
+                title=f"维修工单已派发：{ticket.code or ticket.title}",
+                content=ticket.problem or ticket.title or "",
+                related_id=ticket.id,
+                is_read=1,
+                created_at=ticket.submit_time,
+            ))
+        for admin_id in admins:
+            admin_key = (admin_id, NOTIFY_TYPE_TICKET_CREATED, ticket.id)
+            if admin_key in existing:
+                continue
+            rows.append(Notification(
+                user_id=admin_id,
+                type=NOTIFY_TYPE_TICKET_CREATED,
+                title=f"历史维修工单：{ticket.code or ticket.title}",
+                content=ticket.problem or ticket.title or "",
+                related_id=ticket.id,
+                is_read=1,
+                created_at=ticket.submit_time,
+            ))
+
+    fault_devices = db.query(Device).filter(Device.fault_time.isnot(None)).all()
+    for device in fault_devices:
+        for admin_id in admins:
+            key = (admin_id, NOTIFY_TYPE_DEVICE_FAULT, device.id)
+            if key in existing:
+                continue
+            rows.append(Notification(
+                user_id=admin_id,
+                type=NOTIFY_TYPE_DEVICE_FAULT,
+                title=f"设备故障上报：{device.code} {device.name}",
+                content=device.fault_desc or "",
+                related_id=device.id,
+                is_read=1,
+                created_at=device.fault_time,
+            ))
+
+    reports = db.query(KnowledgeReport).all()
+    for report in reports:
+        for admin_id in admins:
+            key = (admin_id, NOTIFY_TYPE_REPORT_SUBMITTED, report.id)
+            if key in existing:
+                continue
+            rows.append(Notification(
+                user_id=admin_id,
+                type=NOTIFY_TYPE_REPORT_SUBMITTED,
+                title=f"员工贡献方案待审核：{report.submitter_name} 提交了《{report.title}》",
+                content=report.summary or report.solution or "",
+                related_id=report.id,
+                is_read=1,
+                created_at=report.submit_time,
+            ))
+
+    report_types = {
+        "approved": (NOTIFY_TYPE_REPORT_APPROVED, "贡献方案审核通过"),
+        "rejected": (NOTIFY_TYPE_REPORT_REJECTED, "贡献方案被驳回"),
+        "synced_case": (NOTIFY_TYPE_REPORT_SYNCED, "贡献方案已入库"),
+        "synced_guide": (NOTIFY_TYPE_REPORT_SYNCED, "贡献方案已入库"),
+    }
+    for report in reports:
+        if report.status == "pending":
+            continue
+        notify_type, prefix = report_types.get(
+            report.status, (NOTIFY_TYPE_SYSTEM, "贡献方案状态更新")
+        )
+        key = (report.submitter_id, notify_type, report.id)
+        if key in existing:
+            continue
+        rows.append(Notification(
+            user_id=report.submitter_id,
+            type=notify_type,
+            title=f"{prefix}：《{report.title}》",
+            content=report.review_remark or report.summary or "",
+            related_id=report.id,
+            is_read=1,
+            created_at=report.review_time or report.submit_time,
+        ))
+
+    if rows:
+        db.add_all(rows)
+        db.commit()
+
+
+
 @app.get("/api/attachments/{attachment_id}")
 def download_attachment(attachment_id: int, current: User = Depends(get_current_user),
                         db: Session = Depends(get_db)):
@@ -1673,7 +1823,12 @@ def download_attachment(attachment_id: int, current: User = Depends(get_current_
     t = db.query(Ticket).filter(Ticket.id == att.ticket_id).first()
     if not t or (current.id != t.submitter_id and current.role not in ("sysadmin", "manager")):
         raise HTTPException(status_code=403, detail="无权访问")
-    return FileResponse(att.file_path, filename=att.filename)
+    return FileResponse(
+        att.file_path,
+        media_type=att.mime_type or "application/octet-stream",
+        filename=att.filename,
+        content_disposition_type="inline",
+    )
 
 
 # ============================================================
@@ -1690,7 +1845,12 @@ def download_device_fault_attachment(device_id: int, attachment_id: int,
         raise HTTPException(status_code=404, detail="附件不存在")
     if current.role not in (ROLE_SYSADMIN, ROLE_MANAGER):
         raise HTTPException(status_code=403, detail="无权访问")
-    return FileResponse(att.file_path, filename=att.filename)
+    return FileResponse(
+        att.file_path,
+        media_type=att.mime_type or "application/octet-stream",
+        filename=att.filename,
+        content_disposition_type="inline",
+    )
 
 
 @app.delete("/api/devices/{device_id}/fault-attachments/{attachment_id}", response_model=ApiResp)
@@ -1791,6 +1951,64 @@ def create_report(form: ReportCreate, current: User = Depends(get_current_user),
     return ok(_to_report_info(r), "方案报告已提交，等待管理员审核")
 
 
+@app.post("/api/reports/{report_id}/attachments", response_model=ApiResp)
+async def upload_report_attachment(report_id: int, file: UploadFile = File(...),
+                                   current: User = Depends(get_current_user),
+                                   db: Session = Depends(get_db)):
+    report = db.query(KnowledgeReport).filter(KnowledgeReport.id == report_id).first()
+    if not report:
+        return fail("报告不存在", 404)
+    if report.submitter_id != current.id and not is_admin_role(current.role):
+        return fail("无权操作此报告", 403)
+    mime = (file.content_type or "").lower()
+    if mime not in ALLOWED_ATTACH_TYPES:
+        return fail("仅支持 JPG/PNG/WebP/PDF 文件", 400)
+    content = await file.read(MAX_ATTACH_SIZE + 1)
+    await file.close()
+    if len(content) > MAX_ATTACH_SIZE:
+        return fail(f"文件不能超过 {MAX_ATTACH_SIZE // 1024 // 1024}MB", 413)
+    if not content:
+        return fail("上传文件为空", 400)
+    orig_name = file.filename or "upload"
+    suffix = Path(orig_name).suffix.lower()
+    if suffix not in (".jpg", ".jpeg", ".png", ".webp", ".pdf"):
+        suffix = ""
+    save_path = ATTACHMENT_DIR / f"{uuid.uuid4().hex}{suffix}"
+    with open(save_path, "wb") as out:
+        out.write(content)
+    att = ReportAttachment(
+        report_id=report.id, filename=orig_name[:255], file_path=str(save_path),
+        file_size=len(content), mime_type=mime
+    )
+    db.add(att); db.commit(); db.refresh(att)
+    return ok({"id": att.id, "filename": att.filename, "size": att.file_size,
+               "mime_type": att.mime_type, "uploaded_at_ts": _ts(att.uploaded_at)},
+              "附件上传成功")
+
+
+@app.get("/api/reports/{report_id}/attachments/{attachment_id}")
+def view_report_attachment(report_id: int, attachment_id: int,
+                           current: User = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    report = db.query(KnowledgeReport).filter(KnowledgeReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    if report.submitter_id != current.id and not is_admin_role(current.role):
+        raise HTTPException(status_code=403, detail="无权访问")
+    att = db.query(ReportAttachment).filter(
+        ReportAttachment.id == attachment_id,
+        ReportAttachment.report_id == report_id
+    ).first()
+    if not att:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    return FileResponse(
+        att.file_path,
+        media_type=att.mime_type or "application/octet-stream",
+        filename=att.filename,
+        content_disposition_type="inline",
+    )
+
+
 @app.post("/api/reports/{report_id}/review", response_model=ApiResp[ReportInfo])
 def review_report(report_id: int, form: ReportReview,
                   current: User = Depends(get_current_user),
@@ -1815,7 +2033,7 @@ def review_report(report_id: int, form: ReportReview,
             db, user_ids=[r.submitter_id],
             type=NOTIFY_TYPE_REPORT_REJECTED,
             title=f"❌ 您的实践报告《{r.title}》被驳回",
-            content=f"管理员【{r.reviewer_name or current.fullname}】意见：{r.review_remark}",
+            content=f"管理员【{r.reviewer_name or current.fullname}】意见：{r.review_remark}。仅知识实践报告被驳回，关联维修工单状态不受影响。",
             related_id=r.id,
         )
         return ok(_to_report_info(r), "已驳回该报告")

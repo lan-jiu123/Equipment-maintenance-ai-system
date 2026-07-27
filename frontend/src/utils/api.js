@@ -93,6 +93,12 @@ export function downloadDeviceFaultAttachUrl(deviceId, attachId) {
   return `/api/devices/${deviceId}/fault-attachments/${attachId}`
 }
 
+export async function fetchDeviceFaultAttachmentApi(deviceId, attachId) {
+  return request(`/api/devices/${deviceId}/fault-attachments/${attachId}`, {
+    raw: true
+  })
+}
+
 // 删除设备故障附件
 export async function deleteDeviceFaultAttachApi(deviceId, attachId) {
   return request(`/api/devices/${deviceId}/fault-attachments/${attachId}`, { method: 'DELETE' })
@@ -113,6 +119,10 @@ export async function listTicketsApi({
 
 export async function createTicketApi(payload) {
   return request('/api/tickets', { method: 'POST', data: payload })
+}
+
+export async function getTeamRankingApi() {
+  return request('/api/tickets/team-ranking')
 }
 
 export async function getTicketApi(id) {
@@ -208,6 +218,21 @@ export async function listReportsApi({
 
 export async function submitReportApi(payload) {
   return request('/api/reports', { method: 'POST', data: payload })
+}
+
+export async function uploadReportAttachmentApi(reportId, file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return request(`/api/reports/${reportId}/attachments`, {
+    method: 'POST',
+    data: fd
+  })
+}
+
+export async function fetchReportAttachmentApi(reportId, attachmentId) {
+  return request(`/api/reports/${reportId}/attachments/${attachmentId}`, {
+    raw: true
+  })
 }
 
 export async function getReportApi(id) {

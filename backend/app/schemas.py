@@ -153,7 +153,7 @@ class TicketCreate(BaseModel):
     device_id: Optional[int] = None
     device_name: Optional[str] = None
     level: str = Field(default="mid", description="low/mid/high")
-    problem: str = Field(..., min_length=5)
+    problem: str = Field(..., min_length=1)
     assignee_id: Optional[int] = Field(default=None, description="指定派单员，不填则待派单")
 
 
@@ -233,6 +233,7 @@ class ReportInfo(BaseModel):
     review_remark: Optional[str] = None
     review_time_ts: Optional[int] = None
     sync_time_ts: Optional[int] = None
+    attachments: Optional[list] = None
 
 
 # ============ 4. 案例 ============
@@ -378,4 +379,3 @@ class NotificationInfo(BaseModel):
 
 class NotificationMarkReadReq(BaseModel):
     ids: Optional[list[int]] = Field(default=None, description="要标记为已读的通知ID；为空则全部标记为已读")
-
