@@ -169,7 +169,6 @@
                 <li class="dropdown-item" @click="go('/profile')">
                   <span class="dd-icon">👤</span>
                   <span>个人信息</span>
-                  <span class="dd-shortcut">⌘P</span>
                 </li>
                 <li class="dropdown-item" @click="goNotifCenter">
                   <span class="dd-icon">🔔</span>
@@ -179,12 +178,10 @@
                 <li class="dropdown-item" @click="go('/password')">
                   <span class="dd-icon">🔐</span>
                   <span>修改密码</span>
-                  <span class="dd-shortcut">⌘K</span>
                 </li>
                 <li v-if="canSeeLogs" class="dropdown-item" @click="go('/logs')">
                   <span class="dd-icon">📋</span>
                   <span>操作日志</span>
-                  <span class="dd-shortcut">⌘L</span>
                 </li>
               </ul>
               <div class="dropdown-divider"></div>

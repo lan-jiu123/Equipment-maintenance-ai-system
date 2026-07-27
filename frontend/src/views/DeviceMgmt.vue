@@ -24,8 +24,11 @@
             <div v-if="detailDevice.status === 'down'" class="fault-block">
               <div class="fault-block-title">⚠️ 故障报告</div>
               <div class="fault-block-body">
+                <div class="detail-row"><span class="detail-label">报告编号</span><span class="detail-value mono">{{ faultReportCode(detailDevice) }}</span></div>
                 <div class="detail-row"><span class="detail-label">上报人</span><span class="detail-value">{{ detailDevice.fault_reporter_name || '—' }}</span></div>
                 <div class="detail-row"><span class="detail-label">上报时间</span><span class="detail-value mono">{{ detailDevice.fault_time_ts ? formatFaultTime(detailDevice.fault_time_ts) : '—' }}</span></div>
+                <div class="detail-row"><span class="detail-label">紧急程度</span><span class="detail-value"><span class="fault-level">紧急</span></span></div>
+                <div class="detail-row"><span class="detail-label">处理状态</span><span class="detail-value"><span class="fault-state">待处理</span></span></div>
                 <div class="detail-row"><span class="detail-label">故障描述</span><span class="detail-value fault-desc">{{ detailDevice.fault_desc || '—' }}</span></div>
                 <div class="detail-row" v-if="detailDevice.fault_attachments && detailDevice.fault_attachments.length">
                   <span class="detail-label">附件（{{ detailDevice.fault_attachments.length }}）</span>
@@ -162,7 +165,7 @@
             </td>
             <td>
               <button class="btn btn-outline btn-xs" @click="detail(d)">详情</button>
-              <button class="btn btn-primary btn-xs" @click="dispatch(d)" :disabled="d.status==='normal'">派维修</button>
+              <button v-if="d.status === 'down'" class="btn btn-primary btn-xs" @click="dispatch(d)">派维修</button>
               <button class="btn btn-danger btn-xs" @click="deleteDevice(d)">删除</button>
             </td>
           </tr>
@@ -192,6 +195,14 @@ const STATUS_LABEL = {
   normal:    '正常运行',
   repairing: '维修中',
   down:      '故障停机'
+}
+
+const DEVICE_TAG_TO_TICKET_CATEGORY = {
+  '机械动力': '机械',
+  '电气控制': '电气',
+  '安全保护': '安全',
+  '工业仪表': '仪表',
+  '液压执行': '液压'
 }
 
 const TAG_ICON = {
@@ -337,7 +348,21 @@ export default {
       } catch (_) {}
     },
     dispatch(d) {
-      this.$router.push('/admin?tab=repair&device=' + encodeURIComponent(d.code || ''))
+      const code = d.code || ''
+      const name = d.name || ''
+      this.$router.push({
+        path: '/admin',
+        query: {
+          tab: 'order',
+          action: 'create',
+          device_id: String(d.id),
+          device: code,
+          device_name: name,
+          category: DEVICE_TAG_TO_TICKET_CATEGORY[d.tag] || '',
+          title: `${name || code}故障维修`,
+          problem: d.fault_desc || `${name || code}处于故障停机状态，请安排检查并维修`
+        }
+      })
     },
     formatFaultTime(ts) {
       if (!ts) return '-'
@@ -348,6 +373,14 @@ export default {
       const h = String(d.getHours()).padStart(2, '0')
       const m = String(d.getMinutes()).padStart(2, '0')
       return `${Y}-${M}-${D} ${h}:${m}`
+    },
+    faultReportCode(device) {
+      if (!device) return '—'
+      const date = device.fault_time_ts
+        ? this.formatFaultTime(device.fault_time_ts).slice(0, 10).replaceAll('-', '')
+        : '00000000'
+      const id = String(device.id || 0).padStart(3, '0')
+      return `FR-${date}-${id}`
     },
     async deleteDevice(d) {
       if (!confirm(`确认删除设备「${d.name}」（${d.code}）？此操作不可恢复。`)) return
@@ -617,6 +650,22 @@ export default {
   white-space: pre-wrap; line-height: 1.5;
   background: rgba(255, 71, 87, 0.06); border-radius: 6px;
   padding: 8px 10px; display: block;
+}
+.fault-level,
+.fault-state {
+  display: inline-flex; align-items: center;
+  padding: 3px 10px; border-radius: 999px;
+  font-size: 0.75rem; font-weight: 700;
+}
+.fault-level {
+  color: var(--accent-red);
+  background: rgba(255, 71, 87, 0.12);
+  border: 1px solid rgba(255, 71, 87, 0.25);
+}
+.fault-state {
+  color: var(--accent-orange);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
 }
 .fault-attach-list { display: flex; flex-direction: column; gap: 6px; }
 .fault-attach-item {

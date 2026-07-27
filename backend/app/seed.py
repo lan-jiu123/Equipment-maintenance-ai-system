@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import random
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -29,6 +30,7 @@ from .auth import hash_password
 # ============================================================
 _ANCHOR_2026 = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _NOW = datetime.now(timezone.utc)
+_CHINA_TZ = timezone(timedelta(hours=8))
 _DAYS_SINCE_2026 = max(1, (_NOW - _ANCHOR_2026).days)
 
 
@@ -292,6 +294,13 @@ def _create_tickets(db: Session, users: dict[str, User], devices: list[Device]) 
         ticket = Ticket(
             code=code, title=title,
             device_id=dev.id, device_name=f"{dev.code} {dev.name}",
+            category={
+                "机械动力": "机械",
+                "电气控制": "电气",
+                "安全保护": "安全",
+                "工业仪表": "仪表",
+                "液压执行": "液压",
+            }.get(dev.tag, "机械"),
             level=level, status=status,
             submitter_id=random.choice(admins).id,
             assignee_id=assignee.id if assignee else None,
@@ -335,8 +344,18 @@ def _create_tickets(db: Session, users: dict[str, User], devices: list[Device]) 
 
     def _fixed_ts(day_ago: int) -> datetime:
         """精确到某一天（当天随机时分），确保折线图该天计数准确"""
-        d = _NOW - timedelta(days=day_ago)
-        return d.replace(hour=random.randint(7, 22), minute=random.randint(0, 59), second=random.randint(0, 59))
+        now_local = _NOW.astimezone(_CHINA_TZ)
+        d = now_local - timedelta(days=day_ago)
+        if day_ago == 0:
+            # 今天的数据不得晚于当前北京时间。
+            latest = now_local.hour * 3600 + now_local.minute * 60 + now_local.second
+            earliest = 7 * 3600 if latest >= 7 * 3600 else 0
+            second_of_day = random.randint(earliest, latest)
+        else:
+            second_of_day = random.randint(7 * 3600, 22 * 3600 + 59 * 60 + 59)
+        hour, remainder = divmod(second_of_day, 3600)
+        minute, second = divmod(remainder, 60)
+        return d.replace(hour=hour, minute=minute, second=second).astimezone(timezone.utc)
 
     # ============ done ============
     # w1(资深): 45%  w2(中生代):30%  w3(新人):15%  extra:10%
