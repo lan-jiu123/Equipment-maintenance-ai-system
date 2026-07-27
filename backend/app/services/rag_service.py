@@ -25,6 +25,8 @@ SYSTEM_PROMPT = """你是设备检修知识库助手。你只能依据用户消�
 5. 证据不足时必须明确说明"现有知识库证据不足"。
 6. 涉及拆装、旋转、高温或电气风险时给出安全提醒。
 7. 返回严格 JSON，不要使用 Markdown 代码围栏。
+8. 严格围绕指定的设备领域进行回答，不要涉及其他领域内容。
+9. 如果检索证据中的某些术语与指定领域不一致，忽略这些术语，不要据此扩展回答。
 
 JSON 格式：
 {
@@ -112,6 +114,7 @@ def answer_question(
     question: str,
     document_id: str | None = None,
     device_model: str | None = None,
+    fault_domain: str | None = None,
     top_k: int = 5,
     llm_service=None,
     min_lexical_coverage: float = MIN_LEXICAL_COVERAGE,
@@ -121,6 +124,7 @@ def answer_question(
         question,
         document_id=document_id,
         device_model=device_model,
+        fault_domain=fault_domain,
         top_k=top_k,
     )
     insufficient, _ = _insufficient(
@@ -139,30 +143,44 @@ def answer_question(
         for citation in citations
     )
 
-    if insufficient:
-        # 知识不足：调千问基于自身知识回答，不加任何参考性声明
-        system_prompt = """你是设备检修AI知识助手。请按以下结构回答用户问题：\n【故障现象】\n【可能原因】\n【建议检查与处理步骤】\n【风险提示】
+    domain_context = ""
+    if fault_domain:
+        domain_forbidden = {
+            "电气": ["轴承", "齿轮", "润滑", "联轴器", "皮带", "链条", "减速机"],
+            "机械": ["集成电路", "传感器", "PLC", "接触器", "继电器", "变压器"],
+            "液压": ["轴承", "齿轮", "电机绕组", "电刷"],
+            "仪表": ["轴承", "齿轮", "润滑", "联轴器"],
+            "安全": ["轴承", "齿轮", "润滑"],
+        }
+        forbidden = domain_forbidden.get(fault_domain, [])
+        domain_context = f"\n\n【设备领域】{fault_domain}类设备\n"
+        if forbidden:
+            domain_context += f"【禁止涉及】{'、'.join(forbidden)}等非{fault_domain}领域内容\n"
+        domain_context += f"【回答要求】所有结论、原因和步骤必须围绕{fault_domain}领域的设备展开\n"
 
+    if insufficient:
+        system_prompt = f"""你是设备检修AI知识助手。请按以下结构回答用户问题：\n【故障现象】\n【可能原因】\n【建议检查与处理步骤】\n【风险提示】{domain_context}
 要求：
 1. 回答专业、简洁、有可操作性。
 2. 只给作业步骤和建议，不做商业推荐。
 3. 涉及旋转/高温/高压/电气风险时必须给出安全提醒。
 4. 返回严格 JSON，不要使用 Markdown 代码围栏。
+5. 严格围绕上述设备领域进行回答，不要涉及其他领域内容。
 
 JSON 格式：
-{
+{{
   "summary": "简明结论",
   "possible_causes": ["原因1", "原因2"],
   "inspection_steps": ["步骤1", "步骤2"],
   "safety_warnings": ["提醒1"],
   "citation_ids": []
-}
+}}
 """
         user_prompt = f"用户问题：\n{question}"
         llm_via = "rag-knowledge-insufficient+llm-reference"
     else:
         system_prompt = SYSTEM_PROMPT
-        user_prompt = f"用户问题：\n{question}\n\n【检索证据】\n{evidence_text}"
+        user_prompt = f"用户问题：\n{question}{domain_context}\n\n【检索证据】\n{evidence_text}"
 
     service = llm_service or get_llm_service()
     raw_answer, llm_via_or_fallback = service.chat(system_prompt, user_prompt)
@@ -181,7 +199,6 @@ JSON 格式：
         referenced.update(
             str(value) for value in payload["citation_ids"] if str(value) in valid_ids
         )
-    # 知识足够时：模型未按要求标注时仍返回第一条真实证据，但明确标记未在正文引用。
     selected = [citation for citation in citations if citation["id"] in referenced]
     if not insufficient and not selected:
         selected = citations[:1]
@@ -194,4 +211,5 @@ JSON 格式：
         "citations": selected,
         "retrieval": search_result["diagnostics"],
         "llm_via": llm_via,
+        "fault_domain": fault_domain or "",
     }

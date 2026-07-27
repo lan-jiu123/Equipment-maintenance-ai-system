@@ -247,6 +247,7 @@ def hybrid_search(
     query: str,
     document_id: str | None = None,
     device_model: str | None = None,
+    fault_domain: str | None = None,
     top_k: int = 5,
     candidate_k: int = 30,
 ) -> dict:
@@ -297,20 +298,39 @@ def hybrid_search(
         for chunk in chunks
     ]
     bm25_values = _bm25_scores(tokenize(cleaned_query), corpora)
+
+    domain_boost_bm25 = 1.3 if fault_domain else 1.0
+    domain_boost_vector = 1.2 if fault_domain else 1.0
+
+    chunk_ids = [chunk["id"] for chunk in chunks]
+    bm25_scores: dict[str, float] = {}
+    for chunk_id, chunk, score in zip(chunk_ids, chunks, bm25_values):
+        chunk_domain = (chunk.get("device_type") or "").strip()
+        if fault_domain and chunk_domain == fault_domain:
+            score *= domain_boost_bm25
+        bm25_scores[chunk_id] = score
+
     bm25_ranked = _ranked_ids(
-        ((chunk["id"], score) for chunk, score in zip(chunks, bm25_values)),
+        ((chunk_id, score) for chunk_id, score in bm25_scores.items()),
         candidate_k,
     )
 
     query_vector = embed_texts([cleaned_query])[0]
-    vector_scores: list[tuple[str, float]] = []
+    vector_scores: dict[str, float] = {}
+    chunk_id_to_domain = {chunk["id"]: (chunk.get("device_type") or "").strip() for chunk in chunks}
     for row in embedding_rows:
         vector = _blob_to_vector(row["vector"])
         if len(vector) != len(query_vector):
             continue
         score = sum(left * right for left, right in zip(query_vector, vector))
-        vector_scores.append((row["chunk_id"], float(score)))
-    vector_ranked = _ranked_ids(vector_scores, candidate_k)
+        chunk_domain = chunk_id_to_domain.get(row["chunk_id"], "")
+        if fault_domain and chunk_domain == fault_domain:
+            score *= domain_boost_vector
+        vector_scores[row["chunk_id"]] = float(score)
+    vector_ranked = _ranked_ids(
+        ((chunk_id, score) for chunk_id, score in vector_scores.items()),
+        candidate_k,
+    )
 
     fused: dict[str, float] = {}
     bm25_map = dict(bm25_ranked)
@@ -324,22 +344,24 @@ def hybrid_search(
     items = []
     for rank, (chunk_id, rrf_score) in enumerate(ranked, start=1):
         chunk = chunk_by_id[chunk_id]
-        items.append(
-            {
-                "rank": rank,
-                "chunk_id": chunk_id,
-                "document_id": chunk["document_id"],
-                "document_title": chunk["document_title"],
-                "section_title": chunk["section_title"],
-                "page_start": chunk["page_start"],
-                "page_end": chunk["page_end"],
-                "content": chunk["content"],
-                "rrf_score": round(rrf_score, 8),
-                "bm25_score": round(bm25_map.get(chunk_id, 0.0), 6),
-                "vector_score": round(vector_map.get(chunk_id, 0.0), 6),
-                "safety_tags": chunk["safety_tags"],
-            }
-        )
+        item = {
+            "rank": rank,
+            "chunk_id": chunk_id,
+            "document_id": chunk["document_id"],
+            "document_title": chunk["document_title"],
+            "section_title": chunk["section_title"],
+            "page_start": chunk["page_start"],
+            "page_end": chunk["page_end"],
+            "content": chunk["content"],
+            "rrf_score": round(rrf_score, 8),
+            "bm25_score": round(bm25_map.get(chunk_id, 0.0), 6),
+            "vector_score": round(vector_map.get(chunk_id, 0.0), 6),
+            "safety_tags": chunk["safety_tags"],
+            "device_type": chunk.get("device_type", ""),
+        }
+        if fault_domain and chunk.get("device_type") == fault_domain:
+            item["domain_boosted"] = True
+        items.append(item)
     salient_terms = _salient_query_terms(cleaned_query)
     evidence_tokens: set[str] = set()
     evidence_texts: list[str] = []
@@ -357,6 +379,8 @@ def hybrid_search(
     required_codes = {value.lower() for value in CODE_RE.findall(cleaned_query)}
     missing_codes = sorted(code for code in required_codes if code not in evidence_joined)
 
+    boosted_count = sum(1 for item in items if item.get("domain_boosted"))
+
     return {
         "query": cleaned_query,
         "total": len(items),
@@ -367,6 +391,8 @@ def hybrid_search(
             "matched_term_count": len(matched_terms),
             "lexical_coverage": round(lexical_coverage, 4),
             "missing_codes": missing_codes,
+            "fault_domain": fault_domain or "",
+            "domain_boosted_count": boosted_count,
         },
         "items": items,
     }

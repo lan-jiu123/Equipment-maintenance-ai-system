@@ -51,6 +51,8 @@ class User(Base):
                                     foreign_keys="KnowledgeReport.reviewer_id")
     notifications = relationship("Notification", back_populates="user",
                                  foreign_keys="Notification.user_id", cascade="all, delete-orphan")
+    guide_executions = relationship("GuideExecution", back_populates="user",
+                                   foreign_keys="GuideExecution.user_id", cascade="all, delete-orphan")
 
 
 # ============= 设备表 =============
@@ -114,6 +116,8 @@ class Ticket(Base):
                             foreign_keys=[assignee_id])
     attachments = relationship("TicketAttachment", back_populates="ticket",
                                foreign_keys="TicketAttachment.ticket_id", cascade="all, delete-orphan")
+    guide_executions = relationship("GuideExecution", back_populates="ticket",
+                                    foreign_keys="GuideExecution.ticket_id", cascade="all, delete-orphan")
 
 
 # ============= 知识报告表 =============
@@ -196,6 +200,10 @@ class Case(Base):
 
 
 # ============= 作业指导表 =============
+GUIDE_LEVEL_LOW = "low"
+GUIDE_LEVEL_MID = "mid"
+GUIDE_LEVEL_HIGH = "high"
+
 class Guide(Base):
     __tablename__ = "guides"
 
@@ -209,12 +217,21 @@ class Guide(Base):
     difficulty = Column(Integer, nullable=True)                # 难度 1-5（★数）
     tools_json = Column(Text, nullable=True)                    # 工具清单 JSON ["拉马","扭矩扳手",...]
     applicable_devices = Column(String(512), nullable=True)    # 适用设备文本
+    scope = Column(Text, nullable=True)                        # 适用范围说明（适用任务等）
+    maintenance_level = Column(String(16), nullable=True, index=True)
+    checklist_json = Column(Text, nullable=True)               # 合规检查项 JSON：["已断电验电",...]
+    preparation_json = Column(Text, nullable=True)             # 作业前准备 JSON：[{"item":"...","detail":"..."}]
+    safety_control_json = Column(Text, nullable=True)          # 安全/质量控制点 JSON
+    acceptance_criteria_json = Column(Text, nullable=True)     # 关键参数/验收标准 JSON
+    stop_conditions_json = Column(Text, nullable=True)         # 异常/停止执行条件 JSON
     source_report_id = Column(Integer, ForeignKey("knowledge_reports.id"), nullable=True)
     contributor_name = Column(String(128), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     source_report = relationship("KnowledgeReport", back_populates="synced_guide",
                                  foreign_keys=[source_report_id])
+    executions = relationship("GuideExecution", back_populates="guide",
+                              foreign_keys="GuideExecution.guide_id", cascade="all, delete-orphan")
 
 
 # ============= 消息通知表 =============
@@ -271,3 +288,31 @@ class DeviceFaultAttachment(Base):
     uploaded_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     device = relationship("Device", back_populates="fault_attachments")
+
+
+# ============= 作业指导执行记录表 =============
+EXEC_STATUS_IN_PROGRESS = "in_progress"
+EXEC_STATUS_COMPLETED = "completed"
+EXEC_STATUS_ABANDONED = "abandoned"
+
+
+class GuideExecution(Base):
+    __tablename__ = "guide_executions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ticket_id = Column(Integer, ForeignKey("tickets.id", ondelete="CASCADE"), nullable=True, index=True)
+    guide_id = Column(Integer, ForeignKey("guides.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(16), nullable=False, default=EXEC_STATUS_IN_PROGRESS, index=True)
+    checklist_status_json = Column(Text, nullable=True)
+    steps_status_json = Column(Text, nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    review_remark = Column(Text, nullable=True)
+
+    ticket = relationship("Ticket", back_populates="guide_executions",
+                          foreign_keys=[ticket_id])
+    guide = relationship("Guide", back_populates="executions",
+                         foreign_keys=[guide_id])
+    user = relationship("User", back_populates="guide_executions",
+                       foreign_keys=[user_id])

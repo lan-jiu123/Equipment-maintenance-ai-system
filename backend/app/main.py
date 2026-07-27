@@ -54,14 +54,16 @@ for _fld in ("QWEN_API_KEY", "QWEN_TEXT_MODEL", "QWEN_VISION_MODEL",
 del _settings, _fld, _env_val
 from .database import Base, engine, get_db, init_database
 from .models import User, Device, Ticket, KnowledgeReport, Case, Guide, Notification, \
-    TicketAttachment, DeviceFaultAttachment, \
+    TicketAttachment, DeviceFaultAttachment, GuideExecution, \
     NOTIFY_TYPE_REPORT_SUBMITTED, NOTIFY_TYPE_REPORT_APPROVED, NOTIFY_TYPE_REPORT_REJECTED, \
     NOTIFY_TYPE_REPORT_SYNCED, NOTIFY_TYPE_TICKET_ASSIGNED, NOTIFY_TYPE_TICKET_CREATED, \
     NOTIFY_TYPE_DEVICE_FAULT, NOTIFY_TYPE_SYSTEM, \
-    DEVICE_STATUS_NORMAL, DEVICE_STATUS_REPAIRING, DEVICE_STATUS_DOWN
+    DEVICE_STATUS_NORMAL, DEVICE_STATUS_REPAIRING, DEVICE_STATUS_DOWN, \
+    EXEC_STATUS_IN_PROGRESS, EXEC_STATUS_COMPLETED, EXEC_STATUS_ABANDONED
 # ===== 模型接入：RAG 路由 + 内置知识导入 =====
 from .services.knowledge_bootstrap import bootstrap_builtin_knowledge
 from .services.knowledge_graph import save_case, build_graph_from_db
+from .services.retrieval_service import embed_texts
 from .routers.documents import router as documents_router
 from .routers.search import router as search_router
 from .routers.rag import router as rag_router
@@ -80,6 +82,7 @@ from .schemas import (
     TicketCreate, TicketAssign, TicketComplete, TicketInfo,
     ReportCreate, ReportReview, ReportInfo,
     CaseInfo, GuideInfo, GuideStep,
+    GuideExecutionCreate, GuideExecutionUpdate, GuideExecutionInfo,
     UserCreate, UserUpdate, UserPwdChange, UserFullInfo,
     UserProfileUpdate, NotificationInfo, NotificationMarkReadReq,
 )
@@ -209,13 +212,15 @@ if _HAS_OPENAI_SDK and OpenAI is not None:
 def _on_startup():
     # 1. 创建所有表（幂等，已有表不会覆盖）
     Base.metadata.create_all(bind=engine)
-    # 2. 补齐 profile 列（旧库迁移）
+    # 2. 补齐旧表迁移列（profile + guide 新字段）
     _ensure_profile_columns(engine)
+    _ensure_guide_columns(engine)
     # 3. 只有 users 为空才 seed，避免重复插入
     from .database import SessionLocal
     db = SessionLocal()
     try:
         seed_if_empty(db)
+        _reseed_guides(db)
     finally:
         db.close()
     # 4. 模型接入：RAG 知识库表初始化 + 内置知识文档自动导入（幂等）
@@ -228,6 +233,34 @@ _PROFILE_COLS = {
     'join_date': 'TEXT', 'mobile': 'TEXT', 'email': 'TEXT',
     'tel': 'TEXT', 'office': 'TEXT',
 }
+
+
+_GUIDE_COLS = {
+    'scope': 'TEXT',
+    'preparation_json': 'TEXT',
+    'safety_control_json': 'TEXT',
+    'acceptance_criteria_json': 'TEXT',
+    'stop_conditions_json': 'TEXT',
+}
+
+def _ensure_guide_columns(engine) -> None:
+    """为已有的 guides 表补齐新字段。"""
+    try:
+        with engine.connect() as conn:
+            existing = {r[1] for r in conn.execute(
+                text("PRAGMA table_info(guides)")
+            ).fetchall()}
+    except Exception:
+        return
+    for col, typ in _GUIDE_COLS.items():
+        if col in existing:
+            continue
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(f"ALTER TABLE guides ADD COLUMN {col} {typ}"))
+                conn.commit()
+        except Exception:
+            pass
 
 
 def _ensure_profile_columns(engine) -> None:
@@ -919,15 +952,91 @@ def _parse_tools(raw: Optional[str]) -> List[str]:
         return []
 
 
+def _parse_checklist(raw: Optional[str]) -> List[str]:
+    if not raw:
+        return []
+    try:
+        arr = json.loads(raw)
+        return [str(item) for item in arr] if isinstance(arr, list) else []
+    except Exception:
+        return []
+
+
+def _parse_preparation(raw: Optional[str]) -> list[dict]:
+    if not raw:
+        return []
+    try:
+        arr = json.loads(raw)
+        return arr if isinstance(arr, list) else []
+    except Exception:
+        return []
+
+def _reseed_guides(db: Session) -> None:
+    """启动时从 guides.json 重新导入作业指导（清空旧数据后重建）。"""
+    import json as _json
+    from pathlib import Path as _Path
+    guides_file = _Path(__file__).resolve().parent.parent.parent / "knowledge" / "data" / "guides.json"
+    if not guides_file.is_file():
+        return
+    # 清空旧执行记录和指导
+    db.query(GuideExecution).delete()
+    db.query(Guide).delete()
+    db.flush()
+    with open(guides_file, "r", encoding="utf-8") as f:
+        specs = _json.load(f)
+    for spec in specs:
+        steps_obj = [
+            {"step": s.get("step", i + 1), "content": s.get("content", ""), "tip": s.get("tip", "")}
+            for i, s in enumerate(spec.get("steps", []))
+        ]
+        checklist = spec.get("checklist", [])
+        prep = spec.get("preparation", [])
+        safety = spec.get("safety_control", [])
+        accept = spec.get("acceptance_criteria", [])
+        stop = spec.get("stop_conditions", [])
+        g = Guide(
+            title=spec.get("title", ""),
+            device_type=spec.get("device_type", "机械"),
+            tag=spec.get("tag"),
+            steps_json=_json.dumps(steps_obj, ensure_ascii=False),
+            risk_note=spec.get("risk_note"),
+            duration_min=spec.get("duration_min"),
+            difficulty=spec.get("difficulty"),
+            tools_json=_json.dumps(spec.get("required_tools", []), ensure_ascii=False) if spec.get("required_tools") else None,
+            applicable_devices=spec.get("applicable_devices"),
+            scope=spec.get("scope"),
+            maintenance_level=spec.get("maintenance_level"),
+            checklist_json=_json.dumps(checklist, ensure_ascii=False) if checklist else None,
+            preparation_json=_json.dumps(prep, ensure_ascii=False) if prep else None,
+            safety_control_json=_json.dumps(safety, ensure_ascii=False) if safety else None,
+            acceptance_criteria_json=_json.dumps(accept, ensure_ascii=False) if accept else None,
+            stop_conditions_json=_json.dumps(stop, ensure_ascii=False) if stop else None,
+        )
+        db.add(g)
+    db.commit()
+
+
 def _to_guide_info(g: Guide) -> GuideInfo:
     steps = _parse_guide_steps(g.steps_json)
     tools = _parse_tools(g.tools_json)
+    checklist = _parse_checklist(g.checklist_json)
+    preparation = _parse_preparation(g.preparation_json)
+    safety_control = _parse_checklist(g.safety_control_json)
+    acceptance_criteria = _parse_checklist(g.acceptance_criteria_json)
+    stop_conditions = _parse_checklist(g.stop_conditions_json)
     contrib = bool(g.source_report_id or g.contributor_name)
     return GuideInfo(
         id=g.id, title=g.title, device_type=g.device_type, tag=g.tag,
         steps=steps, steps_json=g.steps_json, risk_note=g.risk_note,
         duration_min=g.duration_min, difficulty=g.difficulty,
         tools=tools, applicable_devices=g.applicable_devices,
+        scope=g.scope,
+        maintenance_level=g.maintenance_level,
+        checklist=checklist,
+        preparation=preparation,
+        safety_control=safety_control,
+        acceptance_criteria=acceptance_criteria,
+        stop_conditions=stop_conditions,
         contributor_name=g.contributor_name,
         is_employee_contribution=contrib,
         created_at_ts=_ts(g.created_at),
@@ -1244,7 +1353,160 @@ def delete_ticket(ticket_id: int, current: User = Depends(get_current_user),
     return ok(None, "工单已删除")
 
 
+@app.post("/api/tickets/{ticket_id}/recommend-guides", response_model=ApiResp)
+def recommend_guides_for_ticket(
+    ticket_id: int,
+    current: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """根据工单的设备类型+检修等级+故障描述+适用设备，加权匹配最相关的作业指导。"""
 
+    # ── 权重配置 ──
+    W_DEVICE_TYPE = 30      # 设备类型匹配（硬过滤后全部获得）
+    W_SEMANTIC = 40         # 故障/任务语义匹配
+    W_LEVEL = 20            # 检修等级匹配
+    W_SCOPE = 10            # 适用范围/关键词匹配
+    TOTAL = W_DEVICE_TYPE + W_SEMANTIC + W_LEVEL + W_SCOPE
+
+    t = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not t:
+        return fail("工单不存在", 404)
+
+    # 设备标签 → Guide.device_type 映射
+    _TAG_TO_DEVICE_TYPE = {
+        "机械动力": "机械", "智能制造": "机械", "机械传动": "机械", "机加工": "机械",
+        "电气控制": "电气",
+        "液压执行": "液压",
+        "工业仪表": "仪表",
+        "安全保护": "安全",
+    }
+
+    device_type = "机械"
+    if t.device_id:
+        d = db.query(Device).filter(Device.id == t.device_id).first()
+        if d and d.tag:
+            device_type = _TAG_TO_DEVICE_TYPE.get(d.tag, d.tag)
+    if device_type not in ("机械", "电气", "液压", "仪表", "安全"):
+        device_type = "机械"
+
+    level = t.level
+    device_name = (t.device_name or "").strip()
+
+    # ── 第一层：设备类型硬过滤（只取同类型设备） ──
+    candidates = db.query(Guide).filter(
+        Guide.device_type == device_type
+    ).order_by(Guide.difficulty.asc().nullslast()).all()
+
+    # 如果该类型一条指导都没有，返回空
+    if not candidates:
+        return ok({"recommended": []})
+
+    # 提取设备名称中的关键词（供后续适用设备匹配用）
+    import re as _re
+    name_tokens = set()
+    if device_name:
+        _stop_words = {"设备", "系统", "站", "柜", "机", "器"}
+        name_tokens = set(
+            w for w in _re.split(r"[\s\-、，/]", device_name)
+            if len(w) >= 2 and w not in _stop_words
+        )
+
+    # ── 为每条候选指导计算各维度分数 ──
+    # 1) 设备类型分（全部 30 分，因为已硬过滤）
+    # 2) 语义分（后面统一算）
+    # 3) 等级分
+    # 4) 适用设备/关键词分
+
+    # 先算语义分（需要一次 embed）
+    semantic_scores = {}
+    problem = (t.problem or "").strip()
+    if problem:
+        try:
+            guide_texts = []
+            for g in candidates:
+                steps_text = ""
+                try:
+                    steps = json.loads(g.steps_json) if g.steps_json else []
+                    steps_text = " ".join(s.get("content", "") for s in steps)
+                except Exception:
+                    pass
+                guide_texts.append(f"{g.title} {steps_text} {g.risk_note or ''}")
+            all_texts = [problem] + guide_texts
+            vectors = embed_texts(all_texts)
+            if len(vectors) == len(all_texts):
+                query_vec = vectors[0]
+                for idx, g in enumerate(candidates):
+                    guide_vec = vectors[idx + 1]
+                    dot = sum(a * b for a, b in zip(query_vec, guide_vec))
+                    semantic_scores[g.id] = max(0, dot)  # 截断到 [0,1]
+        except Exception:
+            pass
+
+    # 逐条算总分
+    scored = []
+    for g in candidates:
+        # 等级分 (0-20)
+        if g.maintenance_level == level:
+            level_score = W_LEVEL
+        elif g.maintenance_level:
+            level_score = W_LEVEL * 0.5  # 等级不同，拿一半分
+        else:
+            level_score = 0
+
+        # 适用范围/关键词分 (0-10)
+        scope_score = 0
+        if device_name and g.applicable_devices:
+            if device_name in g.applicable_devices:
+                scope_score = W_SCOPE
+            elif name_tokens:
+                # 关键词部分命中
+                dev_text = (g.applicable_devices or "")
+                hits = sum(1 for tk in name_tokens if tk in dev_text)
+                if hits >= 2:
+                    scope_score = W_SCOPE
+                elif hits == 1:
+                    scope_score = W_SCOPE * 0.5
+
+        # 语义分 (0-40)
+        sem_score = semantic_scores.get(g.id, 0) * W_SEMANTIC
+
+        # 设备类型分（30，硬过滤已通过）
+        type_score = W_DEVICE_TYPE
+
+        total = type_score + sem_score + level_score + scope_score
+        scored.append((total, g, level_score, scope_score, sem_score))
+
+    # 按总分降序排列
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top_score = scored[0][0] if scored else TOTAL
+
+    # 构造返回结果
+    results = []
+    for total, g, lv_score, sc_score, sem_score_raw in scored:
+        guide_info = _to_guide_info(g)
+
+        # 匹配理由
+        parts = []
+        if g.device_type == device_type:
+            parts.append("设备类型匹配")
+        if g.maintenance_level == level:
+            parts.append("等级匹配")
+        elif g.maintenance_level:
+            parts.append("等级不同")
+        if sc_score > 0:
+            parts.append("适用设备匹配")
+        match_reason = " + ".join(parts)
+
+        # 归一化匹配度（展示用）
+        match_pct = round(total / TOTAL * 100)
+
+        results.append({
+            "guide": guide_info.model_dump() if hasattr(guide_info, "model_dump") else guide_info.dict(),
+            "match_reason": match_reason,
+            "match_score": match_pct,
+        })
+
+    return ok({"recommended": results, "device_type": device_type, "level": level})
 
 # ============================================================
 # 工单附件 API
@@ -1851,13 +2113,16 @@ def get_case(case_id: int, current: Optional[User] = Depends(get_current_user_op
 def list_guides(
     page: int = 1, size: int = 20, keyword: Optional[str] = None,
     device_type: Optional[str] = None,
-    source: str = "all",   # all / official / employee
+    maintenance_level: Optional[str] = None,
+    source: str = "all",
     current: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
     q = db.query(Guide)
     if device_type:
         q = q.filter(Guide.device_type == device_type)
+    if maintenance_level:
+        q = q.filter(Guide.maintenance_level == maintenance_level)
     if source == "employee":
         from sqlalchemy import or_ as _or
         q = q.filter(_or(Guide.source_report_id.isnot(None), Guide.contributor_name.isnot(None)))
@@ -1892,6 +2157,148 @@ def get_guide(guide_id: int, current: Optional[User] = Depends(get_current_user_
     if not g:
         return fail("作业指导不存在", 404)
     return ok(_to_guide_info(g))
+
+
+@app.get("/api/guides/recommend", response_model=ApiResp)
+def recommend_guides(
+    device_type: str, level: Optional[str] = None,
+    current: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    results = []
+    if level:
+        exact = db.query(Guide).filter(
+            Guide.device_type == device_type,
+            Guide.maintenance_level == level
+        ).order_by(Guide.difficulty.asc().nullslast()).limit(5).all()
+        results.extend(_to_guide_info(g) for g in exact)
+        fallback = db.query(Guide).filter(
+            Guide.device_type == device_type,
+            Guide.maintenance_level.isnot(level)
+        ).order_by(Guide.difficulty.asc().nullslast()).limit(5 - len(results)).all()
+        results.extend(_to_guide_info(g) for g in fallback)
+    else:
+        all_type = db.query(Guide).filter(
+            Guide.device_type == device_type
+        ).order_by(Guide.difficulty.asc().nullslast()).limit(5).all()
+        results.extend(_to_guide_info(g) for g in all_type)
+    if len(results) < 3:
+        generic = db.query(Guide).filter(
+            Guide.device_type != device_type
+        ).order_by(Guide.difficulty.asc().nullslast()).limit(3 - len(results)).all()
+        results.extend(_to_guide_info(g) for g in generic)
+    return ok({"recommended": results})
+
+
+def _to_exec_info(e: GuideExecution, db: Session) -> GuideExecutionInfo:
+    checklist_status = {}
+    if e.checklist_status_json:
+        try:
+            checklist_status = json.loads(e.checklist_status_json)
+        except Exception:
+            pass
+    steps_status = {}
+    if e.steps_status_json:
+        try:
+            steps_status = json.loads(e.steps_status_json)
+        except Exception:
+            pass
+    user_name = None
+    guide_title = None
+    u = db.query(User).filter(User.id == e.user_id).first()
+    if u:
+        user_name = u.fullname
+    g = db.query(Guide).filter(Guide.id == e.guide_id).first()
+    if g:
+        guide_title = g.title
+    return GuideExecutionInfo(
+        id=e.id, ticket_id=e.ticket_id, guide_id=e.guide_id, user_id=e.user_id,
+        user_name=user_name, guide_title=guide_title, status=e.status,
+        checklist_status=checklist_status, steps_status=steps_status,
+        started_at_ts=_ts(e.started_at),
+        completed_at_ts=_ts(e.completed_at) if e.completed_at else None,
+        review_remark=e.review_remark,
+    )
+
+
+@app.post("/api/guide-executions", response_model=ApiResp[GuideExecutionInfo])
+def create_execution(
+    req: GuideExecutionCreate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    guide = db.query(Guide).filter(Guide.id == req.guide_id).first()
+    if not guide:
+        return fail("作业指导不存在", 404)
+    if req.ticket_id:
+        ticket = db.query(Ticket).filter(Ticket.id == req.ticket_id).first()
+        if not ticket:
+            return fail("工单不存在", 404)
+    existing_q = db.query(GuideExecution).filter(
+        GuideExecution.guide_id == req.guide_id,
+        GuideExecution.user_id == current.id,
+        GuideExecution.status == EXEC_STATUS_IN_PROGRESS
+    )
+    if req.ticket_id:
+        existing_q = existing_q.filter(GuideExecution.ticket_id == req.ticket_id)
+    else:
+        existing_q = existing_q.filter(GuideExecution.ticket_id.is_(None))
+    existing = existing_q.first()
+    if existing:
+        return ok(_to_exec_info(existing, db))
+    exe = GuideExecution(
+        ticket_id=req.ticket_id,
+        guide_id=req.guide_id,
+        user_id=current.id,
+        status=EXEC_STATUS_IN_PROGRESS,
+    )
+    db.add(exe)
+    db.commit()
+    db.refresh(exe)
+    return ok(_to_exec_info(exe, db))
+
+
+@app.put("/api/guide-executions/{exec_id}", response_model=ApiResp[GuideExecutionInfo])
+def update_execution(
+    exec_id: int, req: GuideExecutionUpdate,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    exe = db.query(GuideExecution).filter(GuideExecution.id == exec_id).first()
+    if not exe:
+        return fail("执行记录不存在", 404)
+    if req.checklist_status_json is not None:
+        exe.checklist_status_json = req.checklist_status_json
+    if req.steps_status_json is not None:
+        exe.steps_status_json = req.steps_status_json
+    if req.status is not None:
+        exe.status = req.status
+        if req.status == EXEC_STATUS_COMPLETED:
+            exe.completed_at = _utcnow()
+    if req.review_remark is not None:
+        exe.review_remark = req.review_remark
+    if not exe.completed_at and exe.status == EXEC_STATUS_COMPLETED:
+        exe.completed_at = _utcnow()
+    db.commit()
+    db.refresh(exe)
+    return ok(_to_exec_info(exe, db))
+
+
+@app.get("/api/guide-executions", response_model=ApiResp[list[GuideExecutionInfo]])
+def list_executions(
+    ticket_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+    current: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    q = db.query(GuideExecution)
+    if ticket_id:
+        q = q.filter(GuideExecution.ticket_id == ticket_id)
+    if user_id:
+        q = q.filter(GuideExecution.user_id == user_id)
+    rows = q.order_by(GuideExecution.started_at.desc()).all()
+    items = [_to_exec_info(e, db) for e in rows]
+    return ok(items)
 
 
 # ============================================================

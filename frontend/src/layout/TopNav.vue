@@ -58,6 +58,11 @@
       <!-- 右侧操作 -->
       <div class="nav-actions">
         <div v-if="user" class="user-menu">
+          <!-- 主题切换 -->
+          <button class="theme-toggle" :title="isDark ? '切换到亮色主题' : '切换到暗色主题'" @click="toggleTheme">
+            <span class="theme-icon">{{ isDark ? '🌙' : '☀️' }}</span>
+          </button>
+
           <!-- 消息通知铃铛 -->
           <div class="notif-wrapper" @click.stop>
             <button
@@ -305,13 +310,14 @@ const ROLE_MENUS = {
       { path: '/devices', label: '设备管理' },
       { path: '/admin', label: '维修管理' }
     ]},
-    { key: 'ai', label: '智能助手', icon: '🧠', accent: 'purple', badge: 'AI',
-      children: [
-        { path: '/search', label: '智能检索' },
-        { path: '/guide', label: '作业指导' },
-        { path: '/case', label: '案例库' },
-        { path: '/graph', label: '知识图谱' }
-      ]},
+    { key: 'search', label: '智能检索', icon: '🔍', accent: 'purple',
+      children: [{ path: '/search', label: '智能检索' }] },
+    { key: 'guide', label: '作业指导', icon: '📖', accent: 'purple',
+      children: [{ path: '/guide', label: '作业指导' }] },
+    { key: 'case', label: '案例库', icon: '📚', accent: 'purple',
+      children: [{ path: '/case', label: '案例库' }] },
+    { key: 'graph', label: '知识图谱', icon: '🕸️', accent: 'purple',
+      children: [{ path: '/graph', label: '知识图谱' }] },
     { key: 'sys', label: '用户管理', icon: '⚙',
       children: [{ path: '/users', label: '用户列表' }] }
   ],
@@ -322,13 +328,14 @@ const ROLE_MENUS = {
       { path: '/devices', label: '设备管理' },
       { path: '/admin', label: '维修管理' }
     ]},
-    { key: 'ai', label: '智能助手', icon: '🧠', accent: 'purple', badge: 'AI',
-      children: [
-        { path: '/search', label: '智能检索' },
-        { path: '/guide', label: '作业指导' },
-        { path: '/case', label: '案例库' },
-        { path: '/graph', label: '知识图谱' }
-      ]},
+    { key: 'search', label: '智能检索', icon: '🔍', accent: 'purple',
+      children: [{ path: '/search', label: '智能检索' }] },
+    { key: 'guide', label: '作业指导', icon: '📖', accent: 'purple',
+      children: [{ path: '/guide', label: '作业指导' }] },
+    { key: 'case', label: '案例库', icon: '📚', accent: 'purple',
+      children: [{ path: '/case', label: '案例库' }] },
+    { key: 'graph', label: '知识图谱', icon: '🕸️', accent: 'purple',
+      children: [{ path: '/graph', label: '知识图谱' }] },
     { key: 'sys', label: '用户管理', icon: '⚙',
       children: [{ path: '/users', label: '用户列表' }] }
   ],
@@ -337,13 +344,14 @@ const ROLE_MENUS = {
       children: [{ path: '/desk', label: '我的工作台' }] },
     { key: 'tasks', label: '我的工单', icon: '📋',
       children: [{ path: '/tickets', label: '我的工单' }] },
-    { key: 'ai', label: '智能助手', icon: '🧠', accent: 'purple',
-      children: [
-        { path: '/search', label: '智能检索' },
-        { path: '/guide', label: '作业指导' },
-        { path: '/graph', label: '知识图谱' },
-        { path: '/case', label: '案例库' }
-      ]}
+    { key: 'search', label: '智能检索', icon: '🔍', accent: 'purple',
+      children: [{ path: '/search', label: '智能检索' }] },
+    { key: 'guide', label: '作业指导', icon: '📖', accent: 'purple',
+      children: [{ path: '/guide', label: '作业指导' }] },
+    { key: 'graph', label: '知识图谱', icon: '🕸️', accent: 'purple',
+      children: [{ path: '/graph', label: '知识图谱' }] },
+    { key: 'case', label: '案例库', icon: '📚', accent: 'purple',
+      children: [{ path: '/case', label: '案例库' }] }
   ]
 }
 
@@ -370,6 +378,7 @@ export default {
         report: null,
         ticket: null
       },
+      isDark: true,
     }
   },
   computed: {
@@ -411,6 +420,7 @@ export default {
     }
   },
   mounted() {
+    this.initTheme()
     document.addEventListener('click', this.handleOutsideClick)
     if (this.user) {
       this.fetchNotifications()
@@ -440,6 +450,26 @@ export default {
     }
   },
   methods: {
+    initTheme() {
+      const saved = localStorage.getItem('equipai-theme')
+      if (saved === 'light') {
+        this.isDark = false
+        document.documentElement.setAttribute('data-theme', 'light')
+      } else {
+        this.isDark = true
+        document.documentElement.removeAttribute('data-theme')
+      }
+    },
+    toggleTheme() {
+      this.isDark = !this.isDark
+      if (this.isDark) {
+        document.documentElement.removeAttribute('data-theme')
+        localStorage.setItem('equipai-theme', 'dark')
+      } else {
+        document.documentElement.setAttribute('data-theme', 'light')
+        localStorage.setItem('equipai-theme', 'light')
+      }
+    },
     isGroupActive(group) {
       const path = this.$route.path
       if (group.key === 'workbench') {
@@ -449,14 +479,26 @@ export default {
         return path === '/devices' || path === '/admin' || path.startsWith('/devices/') || path.startsWith('/admin/')
       }
       if (group.key === 'ai') {
-        return path === '/search' || path === '/guide' || path === '/case' ||
-               path.startsWith('/search/') || path.startsWith('/guide/') || path.startsWith('/case/')
+        return path === '/search' || path === '/guide' || path === '/case' || path === '/graph' ||
+               path.startsWith('/search/') || path.startsWith('/guide/') || path.startsWith('/case/') || path.startsWith('/graph/')
       }
       if (group.key === 'sys') {
         return path === '/users' || path.startsWith('/users/')
       }
       if (group.key === 'tasks') {
         return path === '/tickets' || path.startsWith('/tickets/')
+      }
+      if (group.key === 'search') {
+        return path === '/search' || path.startsWith('/search/')
+      }
+      if (group.key === 'guide') {
+        return path === '/guide' || path.startsWith('/guide/')
+      }
+      if (group.key === 'graph') {
+        return path === '/graph' || path.startsWith('/graph/')
+      }
+      if (group.key === 'case') {
+        return path === '/case' || path.startsWith('/case/')
       }
       return group.children.some(c => path === c.path)
     },
@@ -1109,6 +1151,33 @@ export default {
 .btn-sm {
   padding: 6px 16px;
   font-size: 0.8125rem;
+}
+
+/* ===== 主题切换 ===== */
+.theme-toggle {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--duration) var(--ease);
+  margin-right: 4px;
+}
+
+.theme-toggle:hover {
+  background: var(--primary-subtle);
+  color: var(--primary);
+  border-color: var(--border-subtle);
+}
+
+.theme-icon {
+  font-size: 1rem;
+  line-height: 1;
 }
 
 /* ===== 消息通知铃铛 ===== */

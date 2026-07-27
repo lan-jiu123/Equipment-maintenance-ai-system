@@ -246,10 +246,10 @@ export async function getCaseApi(id) {
 // ======================================================
 export async function listGuidesApi({
   page = 1, size = 20, keyword,
-  device_type, source = 'all'
+  device_type, maintenance_level, source = 'all'
 } = {}) {
   return request('/api/guides', {
-    params: _toSearchParams({ page, size, keyword, device_type, source })
+    params: _toSearchParams({ page, size, keyword, device_type, maintenance_level, source })
   })
 }
 
@@ -259,6 +259,39 @@ export async function listGuideTypesApi() {
 
 export async function getGuideApi(id) {
   return request('/api/guides/' + id)
+}
+
+export async function recommendGuidesApi(device_type, level) {
+  const params = { device_type }
+  if (level) params.level = level
+  return request('/api/guides/recommend', { params })
+}
+
+export async function recommendGuidesForTicketApi(ticket_id) {
+  return request('/api/tickets/' + ticket_id + '/recommend-guides', {
+    method: 'POST'
+  })
+}
+
+export async function createExecutionApi(ticket_id, guide_id) {
+  return request('/api/guide-executions', {
+    method: 'POST',
+    data: { ticket_id, guide_id }
+  })
+}
+
+export async function updateExecutionApi(id, payload) {
+  return request('/api/guide-executions/' + id, {
+    method: 'PUT',
+    data: payload
+  })
+}
+
+export async function listExecutionsApi(ticket_id, user_id) {
+  const params = {}
+  if (ticket_id) params.ticket_id = ticket_id
+  if (user_id) params.user_id = user_id
+  return request('/api/guide-executions', { params })
 }
 
 // ======================================================

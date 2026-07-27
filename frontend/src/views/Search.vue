@@ -149,6 +149,53 @@
             <button type="button" class="remove-image" @click="clearImage" :disabled="loading">移除</button>
           </div>
         </div>
+
+        <!-- 检索增强筛选条（可选） -->
+        <div class="enhance-bar">
+          <div class="enhance-title">
+            <span class="enhance-icon">🔧</span>
+            <span>检索增强（可选，提升精准度）</span>
+          </div>
+          <div class="enhance-filters">
+            <div class="filter-item">
+              <select v-model="selectedDeviceType" class="filter-select" @change="onDeviceTypeChange">
+                <option value="">🏷️ 设备类型（全部）</option>
+                <option v-for="t in deviceTypes" :key="t.value" :value="t.value">
+                  {{ t.label }}
+                </option>
+              </select>
+            </div>
+            <div class="filter-item" v-if="selectedDeviceType && filteredDevices.length > 0">
+              <select v-model="selectedDeviceModel" class="filter-select" @change="onDeviceChange">
+                <option value="">📋 具体设备（全部）</option>
+                <option v-for="d in filteredDevices" :key="d.id" :value="d.code">
+                  {{ d.name }} <span v-if="d.code">({{ d.code }})</span>
+                </option>
+              </select>
+            </div>
+            <div class="filter-item">
+              <select v-model="selectedDocumentId" class="filter-select" @change="onDocumentChange">
+                <option value="">📖 检修手册（不指定）</option>
+                <option v-for="doc in documentList" :key="doc.id" :value="doc.id">
+                  {{ doc.title }}
+                </option>
+              </select>
+            </div>
+            <button
+              v-if="selectedDeviceType || selectedDeviceModel || selectedDocumentId"
+              type="button"
+              class="filter-clear"
+              @click="clearFilters"
+            >清除筛选</button>
+          </div>
+          <div v-if="activeFilterTags.length" class="filter-tags">
+            <span v-for="tag in activeFilterTags" :key="tag.key" class="filter-tag">
+              {{ tag.icon }} {{ tag.label }}
+              <button type="button" class="tag-close" @click="removeFilter(tag.key)">×</button>
+            </span>
+          </div>
+        </div>
+
         <textarea
           v-model="question"
           class="input search-input"
@@ -157,6 +204,50 @@
           rows="2"
           @keydown="handleKeydown"
         />
+
+        <!-- 深度融合预览：展示将联合发送的信息 -->
+        <div v-if="hasAnyInput" class="fusion-preview">
+          <div class="fusion-preview-title">
+            <span class="fusion-icon">🧠</span>
+            <span>深度融合（将联合发送以下信息）</span>
+          </div>
+          <div class="fusion-preview-items">
+            <div v-if="imageFile" class="fusion-item fusion-item-image">
+              <span class="fusion-item-icon">🖼️</span>
+              <span class="fusion-item-label">图片:</span>
+              <span class="fusion-item-value">{{ imageFile.name }}</span>
+              <span class="fusion-item-badge">视觉分析</span>
+            </div>
+            <div v-if="question.trim()" class="fusion-item">
+              <span class="fusion-item-icon">📝</span>
+              <span class="fusion-item-label">文本:</span>
+              <span class="fusion-item-value">{{ question }}</span>
+              <span class="fusion-item-badge">语义理解</span>
+            </div>
+            <div v-if="selectedDeviceType" class="fusion-item">
+              <span class="fusion-item-icon">🏷️</span>
+              <span class="fusion-item-label">类型:</span>
+              <span class="fusion-item-value">{{ selectedDeviceType }}</span>
+              <span class="fusion-item-badge">范围限定</span>
+            </div>
+            <div v-if="selectedDeviceModel" class="fusion-item">
+              <span class="fusion-item-icon">📋</span>
+              <span class="fusion-item-label">设备:</span>
+              <span class="fusion-item-value">{{ deviceList.find(d => d.code === selectedDeviceModel)?.name || selectedDeviceModel }}</span>
+              <span class="fusion-item-badge">精准定位</span>
+            </div>
+            <div v-if="selectedDocumentId" class="fusion-item">
+              <span class="fusion-item-icon">📖</span>
+              <span class="fusion-item-label">手册:</span>
+              <span class="fusion-item-value">{{ documentList.find(d => d.id === selectedDocumentId)?.title || selectedDocumentId }}</span>
+              <span class="fusion-item-badge">知识限定</span>
+            </div>
+          </div>
+          <div class="fusion-preview-hint">
+            以上信息将联合进行跨模态融合检索，提升诊断精准度
+          </div>
+        </div>
+
         <div class="input-actions">
           <div class="input-tip">{{ question.length }} / 500</div>
           <button type="submit" class="btn btn-primary send-btn" :disabled="loading || (!question.trim() && !imageFile)">
@@ -240,6 +331,19 @@ export default {
       // 图片相关（队友新增）
       imageFile: null,
       imagePreview: '',
+      // 检索增强：设备类型 / 具体设备 / 检修手册
+      deviceList: [],
+      documentList: [],
+      selectedDeviceType: '',
+      selectedDeviceModel: '',
+      selectedDocumentId: '',
+      deviceTypes: [
+        { value: '机械', label: '⚙️ 机械' },
+        { value: '电气', label: '⚡ 电气' },
+        { value: '液压', label: '🔧 液压' },
+        { value: '仪表', label: '📊 仪表' },
+        { value: '安全', label: '🛡️ 安全' }
+      ],
       // 示例：合并双方（你的工业设备示例 + 队友的汽车维修示例）
       examples: [
         '离心泵运行时轴承温度超过 80°C，伴随异常振动',
@@ -252,6 +356,30 @@ export default {
     }
   },
   computed: {
+    hasAnyInput() {
+      return !!(this.imageFile || this.question.trim() || this.selectedDeviceType || this.selectedDeviceModel || this.selectedDocumentId)
+    },
+    filteredDevices() {
+      if (!this.selectedDeviceType) return this.deviceList
+      return this.deviceList.filter(d => d.tag === this.selectedDeviceType)
+    },
+    activeFilterTags() {
+      const tags = []
+      if (this.selectedDeviceType) {
+        const t = this.deviceTypes.find(x => x.value === this.selectedDeviceType)
+        tags.push({ key: 'deviceType', icon: '🏷️', label: '类型: ' + (t ? t.label.replace(/^\S+\s*/, '') : this.selectedDeviceType) })
+      }
+      if (this.selectedDeviceModel) {
+        const d = this.deviceList.find(x => x.code === this.selectedDeviceModel)
+        const label = d ? (d.name + (d.code ? '(' + d.code + ')' : '')) : this.selectedDeviceModel
+        tags.push({ key: 'device', icon: '📋', label: '设备: ' + label })
+      }
+      if (this.selectedDocumentId) {
+        const doc = this.documentList.find(d => d.id === this.selectedDocumentId)
+        tags.push({ key: 'doc', icon: '📖', label: '手册: ' + (doc ? doc.title : this.selectedDocumentId) })
+      }
+      return tags
+    },
     hasHistory() {
       return this.savedSessions.length > 0
     },
@@ -274,6 +402,8 @@ export default {
     this.loadHistory()
   },
   mounted() {
+    this.loadDeviceList()
+    this.loadDocumentList()
     this.$nextTick(() => this.scrollToBottom())
   },
   methods: {
@@ -307,8 +437,22 @@ export default {
       }
 
       // 纯文字：优先走 RAG 接口（/api/rag/ask），失败自动降级到旧 /api/ai/ask 接口
-      this.messages.push({ role: 'user', content: text, time: Date.now() })
+      const textFusionParts = []
+      textFusionParts.push(text)
+      if (this.selectedDeviceType) textFusionParts.push(`\n【设备类型】${this.selectedDeviceType}`)
+      if (this.selectedDeviceModel) {
+        const d = this.deviceList.find(x => x.code === this.selectedDeviceModel)
+        textFusionParts.push(`【具体设备】${d ? d.name + '(' + d.code + ')' : this.selectedDeviceModel}`)
+      }
+      if (this.selectedDocumentId) {
+        const doc = this.documentList.find(x => x.id === this.selectedDocumentId)
+        textFusionParts.push(`【限定手册】${doc ? doc.title : '已指定'}`)
+      }
+      const hasEnhance = this.selectedDeviceType || this.selectedDeviceModel || this.selectedDocumentId
+      const textContent = hasEnhance ? textFusionParts.join('\n') + '\n\n— 跨模态融合检索 —' : text
+      this.messages.push({ role: 'user', content: textContent, time: Date.now() })
       this.question = ''
+      this.clearFilters()
       this.loading = true
       this.$nextTick(() => this.scrollToBottom())
 
@@ -318,10 +462,12 @@ export default {
         let ragFallbackNeeded = true
         try {
           const token = localStorage.getItem('equipai_token') || ''
+          const enhanceParams = this.buildEnhanceParams()
+          const body = { question: text, top_k: 5, ...enhanceParams }
           const res = await fetch('/api/rag/ask', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-            body: JSON.stringify({ question: text, top_k: 5 })
+            body: JSON.stringify(body)
           })
           const data = await res.json()
           // RAG 结果合格的判断：HTTP 成功 + (明确可回答 或 有引用来源)
@@ -394,7 +540,6 @@ export default {
       }
       try {
         const compressed = await this.compressImage(file)
-        if (this.imagePreview) URL.revokeObjectURL(this.imagePreview)
         this.imageFile = compressed
         this.imagePreview = URL.createObjectURL(compressed)
       } catch (e) {
@@ -432,13 +577,28 @@ export default {
     async diagnoseImage(note) {
       const file = this.imageFile
       const preview = this.imagePreview
+      // 构建融合摘要作为用户消息
+      const fusionParts = []
+      if (note) fusionParts.push(`【文本描述】${note}`)
+      if (this.selectedDeviceType) fusionParts.push(`【设备类型】${this.selectedDeviceType}`)
+      if (this.selectedDeviceModel) {
+        const d = this.deviceList.find(x => x.code === this.selectedDeviceModel)
+        fusionParts.push(`【具体设备】${d ? d.name + '(' + d.code + ')' : this.selectedDeviceModel}`)
+      }
+      if (this.selectedDocumentId) {
+        const doc = this.documentList.find(x => x.id === this.selectedDocumentId)
+        fusionParts.push(`【限定手册】${doc ? doc.title : '已指定'}`)
+      }
+      const fusionSummary = fusionParts.join('\n')
+
       this.messages.push({
         role: 'user',
-        content: note || '请识别这张故障图片并检索相关维修资料。',
+        content: fusionSummary,
         image: preview,
         time: Date.now()
       })
       this.question = ''
+      this.clearFilters()
       this.loading = true
       this.$nextTick(() => this.scrollToBottom())
       try {
@@ -446,6 +606,10 @@ export default {
         form.append('file', file, file.name)
         form.append('note', note)
         form.append('top_k', '5')
+        const enhanceParams = this.buildEnhanceParams()
+        if (enhanceParams.device_model) form.append('device_model', enhanceParams.device_model)
+        if (enhanceParams.document_id) form.append('document_id', enhanceParams.document_id)
+        if (enhanceParams.device_type) form.append('device_type', enhanceParams.device_type)
         const token = localStorage.getItem('equipai_token') || ''
         const res = await fetch('/api/images/diagnose', {
           method: 'POST',
@@ -459,12 +623,25 @@ export default {
         const facts = (vision.visible_facts || []).join('；') || '未识别到明确可见异常'
         const ocr = (vision.ocr_text || []).join('；') || '未识别到文字或型号'
         const faults = (vision.suspected_faults || []).join('；') || '暂无可靠故障推测'
-        const visionText = `【图片识别】\n设备：${vision.equipment || '无法确定'}\n部件：${vision.component || '无法确定'}\n可见事实：${facts}\nOCR：${ocr}\n疑似故障：${faults}\n置信度：${Math.round((vision.confidence || 0) * 100)}%\n人工复核：${vision.review_reason || '建议由专业人员复核'}`
+        const parts = []
+        if (vision.is_overview) parts.push(`📷 整机/远景图（建议拍摄局部特写以获得更精准诊断）`)
+        if (vision.equipment) parts.push(`设备型号：${vision.equipment}`)
+        if (vision.equipment_category) parts.push(`设备类别：${vision.equipment_category}`)
+        if (vision.component_type) parts.push(`部件类型：${vision.component_type}`)
+        if (vision.component) parts.push(`部件：${vision.component}`)
+        if (vision.fault_domain) parts.push(`领域：${vision.fault_domain}`)
+        parts.push(`可见事实：${facts}`)
+        parts.push(`OCR：${ocr}`)
+        parts.push(`疑似故障：${faults}`)
+        parts.push(`置信度：${Math.round((vision.confidence || 0) * 100)}%`)
+        if (vision.confidence > 0 && vision.confidence < 0.3) parts.push('⚠️ 置信度较低，结果仅供参考')
+        parts.push(`人工复核：${vision.review_reason || '建议由专业人员复核'}`)
+        const visionText = `【图片识别】\n${parts.join('\n')}`
         const retrieval = rag.retrieval || {}
         const coverage = typeof retrieval.lexical_coverage === 'number'
           ? `${Math.round(retrieval.lexical_coverage * 100)}%`
           : '未知'
-        const retrievalText = `【检索过程】\n检索关键词：${data.retrieval_query || '未生成'}\n证据关键词覆盖率：${coverage}`
+        const retrievalText = `【检索过程】\n检索关键词：${data.retrieval_query || '未生成'}${retrieval.fault_domain ? '\n检索领域：' + retrieval.fault_domain : ''}${retrieval.domain_boosted_count ? '\n领域加权命中：' + retrieval.domain_boosted_count + '条' : ''}\n证据关键词覆盖率：${coverage}`
         const ragText = rag.answer || '现有知识库证据不足，未生成检修步骤。'
         this.messages.push({
           role: 'assistant',
@@ -485,10 +662,92 @@ export default {
       }
     },
     clearImage() {
-      if (this.imagePreview) URL.revokeObjectURL(this.imagePreview)
       this.imageFile = null
       this.imagePreview = ''
       if (this.$refs.imageInput) this.$refs.imageInput.value = ''
+    },
+    // ========== 检索增强：加载设备/文档列表 ==========
+    async loadDeviceList() {
+      try {
+        const token = localStorage.getItem('equipai_token') || ''
+        const res = await fetch('/api/devices?page=1&size=200', {
+          headers: { 'Authorization': 'Bearer ' + token }
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const items = (data.data && data.data.items) || data.items || []
+          const seen = new Set()
+          this.deviceList = items
+            .filter(d => {
+              const key = d.code || d.name
+              if (seen.has(key)) return false
+              seen.add(key)
+              return true
+            })
+            .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        }
+      } catch (_e) {}
+    },
+    async loadDocumentList() {
+      try {
+        const token = localStorage.getItem('equipai_token') || ''
+        const res = await fetch('/api/documents?limit=100', {
+          headers: { 'Authorization': 'Bearer ' + token }
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const items = data.items || []
+          const seen = new Set()
+          this.documentList = items
+            .filter(doc => {
+              const key = doc.title || doc.id
+              if (seen.has(key)) return false
+              seen.add(key)
+              return true
+            })
+            .sort((a, b) => (a.title || '').localeCompare(b.title || ''))
+        }
+      } catch (_e) {}
+    },
+    onDeviceTypeChange() {
+      this.selectedDeviceModel = ''
+      if (this.selectedDeviceType) {
+        this.loadDocumentList()
+      }
+    },
+    onDeviceChange() {
+      if (this.selectedDeviceModel) {
+        this.loadDocumentList()
+      }
+    },
+    onDocumentChange() {
+      // 可扩展：选中文档后展示文档摘要
+    },
+    clearFilters() {
+      this.selectedDeviceType = ''
+      this.selectedDeviceModel = ''
+      this.selectedDocumentId = ''
+    },
+    removeFilter(key) {
+      if (key === 'deviceType') {
+        this.selectedDeviceType = ''
+        this.selectedDeviceModel = ''
+      }
+      if (key === 'device') this.selectedDeviceModel = ''
+      if (key === 'doc') this.selectedDocumentId = ''
+    },
+    buildEnhanceParams() {
+      const params = {}
+      if (this.selectedDeviceType) {
+        params.device_type = this.selectedDeviceType
+      }
+      if (this.selectedDeviceModel) {
+        params.device_model = this.selectedDeviceModel
+      }
+      if (this.selectedDocumentId) {
+        params.document_id = this.selectedDocumentId
+      }
+      return params
     },
     formatFileSize(size) {
       if (!size) return ''
@@ -1111,6 +1370,214 @@ export default {
   border: 0;
   background: transparent;
   cursor: pointer;
+}
+
+/* 检索增强筛选条 */
+.enhance-bar {
+  padding: 12px 14px;
+  border: 1px dashed var(--border-active);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.enhance-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.enhance-icon {
+  font-size: 1rem;
+}
+
+.enhance-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-item {
+  flex: 1;
+  min-width: 180px;
+}
+
+.filter-select {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 0.8125rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.filter-select:hover {
+  border-color: var(--primary);
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.filter-select option {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.filter-clear {
+  padding: 7px 14px;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.filter-clear:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.filter-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.filter-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  font-weight: 500;
+}
+
+.tag-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.tag-close:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+/* 深度融合预览 */
+.fusion-preview {
+  padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(139, 92, 246, 0.08));
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  border-radius: var(--radius);
+  margin-top: 8px;
+}
+
+.fusion-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 10px;
+}
+
+.fusion-icon {
+  font-size: 1rem;
+}
+
+.fusion-preview-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fusion-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  padding: 6px 10px;
+  background: var(--bg-surface);
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+
+.fusion-item-image {
+  border-left: 3px solid #8b5cf6;
+}
+
+.fusion-item-icon {
+  font-size: 0.875rem;
+}
+
+.fusion-item-label {
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.fusion-item-value {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fusion-item-badge {
+  font-size: 0.6875rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.fusion-preview-hint {
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .filter-item {
+    min-width: 100%;
+  }
+  .enhance-filters {
+    flex-direction: column;
+  }
 }
 
 .search-input {

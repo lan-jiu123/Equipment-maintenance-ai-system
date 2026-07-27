@@ -926,7 +926,7 @@ export default {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.95);
+  background: var(--modal-mask);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -935,8 +935,8 @@ export default {
 }
 
 .modal-content {
-  background: #1a1d24;
-  border: 1px solid var(--border-subtle);
+  background: var(--modal-bg);
+  border: 1px solid var(--modal-border);
   border-radius: var(--radius);
   max-width: 700px;
   width: 100%;
@@ -952,7 +952,7 @@ export default {
   justify-content: space-between;
   align-items: flex-start;
   padding: 16px 24px;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--modal-header-border);
   gap: 12px;
   position: relative;
   flex-shrink: 0;
@@ -1088,7 +1088,7 @@ export default {
 
 .modal-footer {
   padding: 16px 24px;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--modal-footer-border);
   display: flex;
   justify-content: flex-end;
 }

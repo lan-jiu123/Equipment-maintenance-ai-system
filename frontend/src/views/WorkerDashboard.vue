@@ -155,6 +155,7 @@
                 {{ o._op === 'accept' ? '处理中…' : '开始处理' }}
               </button>
               <button class="act-btn" @click="askAI(o)">AI 辅助</button>
+              <button class="act-btn guide-btn" @click="showGuideRecommend(o)">作业指导</button>
             </div>
           </div>
           <div v-if="!loading && todoList.length === 0" class="todo-empty">
@@ -366,6 +367,95 @@
       </div>
     </div>
 
+    <!-- 推荐作业指导弹窗 -->
+    <div v-if="guideModalOpen" class="modal-mask" @click="guideModalOpen = false">
+      <div class="modal-card card" @click.stop style="max-width: 640px;">
+        <div class="modal-head">
+          <h3>📋 推荐作业指导 — {{ guideModalTicket?.title }}</h3>
+          <div class="modal-head-actions">
+            <button class="modal-refresh-btn" @click="refreshGuideRecommend" :disabled="guideModalLoading" title="重新匹配">🔄</button>
+            <button class="modal-close" @click="guideModalOpen = false" type="button">✕</button>
+          </div>
+        </div>
+        <div class="modal-body">
+          <div v-if="guideModalLoading" class="guide-loading">正在匹配最合适的作业指导...</div>
+          <div v-else-if="guideModalError" class="guide-error">{{ guideModalError }}</div>
+          <div v-else-if="guideModalItems.length === 0" class="guide-empty">
+            <div class="guide-empty-icon">📭</div>
+            <div class="guide-empty-text">暂未找到匹配的作业指导</div>
+            <div class="guide-empty-desc">可前往<a href="/guide" class="guide-link">作业指导库</a>浏览全部规程</div>
+          </div>
+          <div v-else class="guide-list">
+            <div
+              v-for="(item, gi) in guideModalItems"
+              :key="gi"
+              class="guide-rec-card card"
+              :class="{ 'guide-exact': item.match_reason.includes('精确') }"
+            >
+              <div class="guide-rec-header">
+                <span class="guide-rec-title">{{ item.guide.title }}</span>
+                <span class="guide-rec-badge" :class="item.guide.maintenance_level">
+                  {{ { low: '1级', mid: '2级', high: '3级' }[item.guide.maintenance_level] || '' }}
+                </span>
+              </div>
+              <div class="guide-rec-meta">
+                <span>🔧 {{ item.guide.device_type }}</span>
+                <span>⏱ {{ item.guide.duration_min || '—' }} 分钟</span>
+                <span>📊 {{ '★'.repeat(item.guide.difficulty || 0) }}{{ '☆'.repeat(5 - (item.guide.difficulty || 0)) }}</span>
+              </div>
+              <div class="guide-rec-reason">{{ item.match_reason }}</div>
+
+              <!-- 适用范围 -->
+              <div v-if="item.guide.scope" class="rec-section">
+                <div class="rec-section-title">📌 适用范围</div>
+                <div class="rec-section-body">{{ item.guide.scope.split('\n')[0] }}</div>
+              </div>
+
+              <!-- 作业前准备（浓缩） -->
+              <div v-if="item.guide.preparation && item.guide.preparation.length" class="rec-section">
+                <div class="rec-section-title">🔧 作业前准备</div>
+                <div class="rec-prep-list">
+                  <span v-for="(p, pi) in item.guide.preparation" :key="pi" class="rec-prep-chip">{{ p.item }}: {{ p.detail }}</span>
+                </div>
+              </div>
+
+              <!-- 安全控制点（浓缩为标签） -->
+              <div v-if="item.guide.safety_control && item.guide.safety_control.length" class="rec-section">
+                <div class="rec-section-title warn-title">⚠️ 安全控制点</div>
+                <div class="rec-tag-list">
+                  <span v-for="(sc, si) in item.guide.safety_control.slice(0, 3)" :key="si" class="rec-tag rec-tag-warn">{{ sc }}</span>
+                  <span v-if="item.guide.safety_control.length > 3" class="rec-tag rec-tag-more">+{{ item.guide.safety_control.length - 3 }}</span>
+                </div>
+              </div>
+
+              <!-- 验收标准（浓缩为标签） -->
+              <div v-if="item.guide.acceptance_criteria && item.guide.acceptance_criteria.length" class="rec-section">
+                <div class="rec-section-title">✅ 验收标准</div>
+                <div class="rec-tag-list">
+                  <span v-for="(ac, ai) in item.guide.acceptance_criteria.slice(0, 3)" :key="ai" class="rec-tag rec-tag-ok">{{ ac }}</span>
+                  <span v-if="item.guide.acceptance_criteria.length > 3" class="rec-tag rec-tag-more">+{{ item.guide.acceptance_criteria.length - 3 }}</span>
+                </div>
+              </div>
+
+              <!-- 合规校验项预览 -->
+              <div v-if="item.guide.checklist && item.guide.checklist.length" class="rec-section">
+                <div class="rec-section-title">📋 合规校验项（{{ item.guide.checklist.length }}项）</div>
+                <div v-for="(chk, ci) in item.guide.checklist.slice(0, 3)" :key="ci" class="rec-cl-item">✓ {{ chk }}</div>
+                <div v-if="item.guide.checklist.length > 3" class="rec-cl-more">+{{ item.guide.checklist.length - 3 }} 项</div>
+              </div>
+
+              <!-- 停止条件警告 -->
+              <div v-if="item.guide.stop_conditions && item.guide.stop_conditions.length" class="rec-stop-warn">
+                🚫 如现场存在：{{ item.guide.stop_conditions.slice(0, 2).join('、') }} 等，请暂停执行并评估
+              </div>
+
+              <button class="rec-view-btn" @click="goGuideDetail(item.guide.id)">📄 查看完整指导详情 →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <KnowledgeReport
       :visible="reportVisible"
       source="manual"
@@ -385,7 +475,7 @@ import { fetchUserStats, getUserStats } from '../utils/knowledge'
 import KnowledgeReport from '../components/KnowledgeReport.vue'
 import {
   listTicketsApi, acceptTicketApi, completeTicketApi, submitReportApi,
-  listDevicesApi, reportFaultApi
+  listDevicesApi, reportFaultApi, recommendGuidesForTicketApi
 } from '../utils/api'
 import { toast as _toast } from '../utils/request'
 
@@ -490,7 +580,12 @@ export default {
       faultAttachFiles: [],
       deviceList: [],
       faultForm: { device_id: null, desc: '', code: '', name: '', tag: '机械', location: '', spec: '', device_status: '故障停机' },
-      deviceListShow: false
+      deviceListShow: false,
+      guideModalOpen: false,
+      guideModalLoading: false,
+      guideModalError: '',
+      guideModalTicket: null,
+      guideModalItems: []
     }
   },
   computed: {
@@ -755,6 +850,31 @@ export default {
     },
     statusLabel(s) {
       return ({ normal: '正常运行', repairing: '维修中', down: '故障停机' })[s] || s
+    },
+    async showGuideRecommend(o) {
+      this.guideModalTicket = o
+      this.guideModalOpen = true
+      await this.refreshGuideRecommend()
+    },
+    async refreshGuideRecommend() {
+      if (!this.guideModalTicket) return
+      this.guideModalLoading = true
+      this.guideModalError = ''
+      this.guideModalItems = []
+      try {
+        const res = await recommendGuidesForTicketApi(this.guideModalTicket.id)
+        this.guideModalItems = (res && res.recommended) || []
+      } catch (e) {
+        this.guideModalError = '推荐加载失败: ' + (e.message || '请重试')
+      } finally {
+        this.guideModalLoading = false
+      }
+    },
+    goGuideDetail(guideId) {
+      const ticketId = this.guideModalTicket?.id
+      const path = ticketId ? '/guide?ticket_id=' + ticketId : '/guide'
+      this.$router.push(path)
+      this.guideModalOpen = false
     },
     async openFaultReport() {
       this.faultErr = ''
@@ -1240,6 +1360,68 @@ export default {
 .btn-warning { background: linear-gradient(135deg, #ffc107, #ff9800); color: #1a1a2e; border: 1px solid rgba(255,193,7,0.3); font-weight: 600; padding: 8px 20px; border-radius: var(--radius); cursor: pointer; font-family: inherit; font-size: 0.875rem; transition: all var(--duration) var(--ease); }
 .btn-warning:hover { filter: brightness(1.08); box-shadow: 0 4px 14px rgba(255,193,7,0.25); }
 .btn-warning:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.guide-btn { border-color: rgba(16,185,129,0.3); color: var(--accent-green); }
+.guide-btn:hover { background: rgba(16,185,129,0.08); border-color: var(--accent-green); }
+
+.guide-loading { text-align: center; padding: 40px 16px; color: var(--text-secondary); font-size: 0.875rem; }
+.guide-error { text-align: center; padding: 24px; color: var(--accent-red); font-size: 0.875rem; }
+.guide-empty { text-align: center; padding: 40px 16px; }
+.guide-empty-icon { font-size: 2.5rem; margin-bottom: 12px; }
+.guide-empty-text { font-size: 0.9375rem; color: var(--text-secondary); margin-bottom: 8px; }
+.guide-empty-desc { font-size: 0.8125rem; color: var(--text-muted); }
+.guide-link { color: var(--primary); text-decoration: none; }
+.guide-list { display: flex; flex-direction: column; gap: 12px; }
+.guide-rec-card {
+  padding: 16px; border: 1px solid var(--border-subtle);
+  transition: all var(--duration) var(--ease);
+}
+.guide-rec-card.guide-exact {
+  border-color: rgba(16,185,129,0.25);
+  background: rgba(16,185,129,0.03);
+}
+.guide-rec-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.guide-rec-title { font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); }
+.guide-rec-badge {
+  font-size: 0.625rem; padding: 2px 8px; border-radius: 999px; font-weight: 600; flex-shrink: 0;
+}
+.guide-rec-badge.low { background: rgba(16,185,129,0.12); color: var(--accent-green); border: 1px solid rgba(16,185,129,0.2); }
+.guide-rec-badge.mid { background: rgba(255,107,53,0.12); color: var(--accent-orange); border: 1px solid rgba(255,107,53,0.2); }
+.guide-rec-badge.high { background: rgba(255,71,87,0.12); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.2); }
+.guide-rec-meta { display: flex; gap: 12px; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 6px; flex-wrap: wrap; }
+.guide-rec-reason { font-size: 0.6875rem; color: var(--accent-green); margin-bottom: 8px; }
+.guide-rec-checklist { margin-bottom: 10px; }
+.guide-rec-cl-title { font-size: 0.75rem; color: var(--text-secondary); font-weight: 500; display: block; margin-bottom: 4px; }
+.guide-rec-cl-item { font-size: 0.6875rem; color: var(--text-muted); padding: 2px 0 2px 12px; }
+.guide-rec-cl-more { font-size: 0.625rem; color: var(--text-muted); padding: 2px 0 2px 12px; }
+.btn-sm { padding: 6px 14px; font-size: 0.75rem; border-radius: var(--radius); cursor: pointer; border: none; font-family: inherit; }
+
+/* 弹窗推荐卡片详情区 */
+.rec-section { margin-bottom: 10px; }
+.rec-section-title { font-size: 0.75rem; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+.warn-title { color: var(--accent-orange); }
+.rec-section-body { font-size: 0.75rem; color: var(--text-secondary); line-height: 1.5; }
+.rec-prep-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.rec-prep-chip { font-size: 0.6875rem; padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.04); color: var(--text-secondary); border: 1px solid var(--border-subtle); }
+.rec-tag-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.rec-tag { font-size: 0.6875rem; padding: 2px 8px; border-radius: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-tag-warn { background: rgba(255,107,53,0.08); color: var(--accent-orange); border: 1px solid rgba(255,107,53,0.15); }
+.rec-tag-ok { background: rgba(16,185,129,0.08); color: var(--accent-green); border: 1px solid rgba(16,185,129,0.15); }
+.rec-tag-more { background: transparent; color: var(--text-muted); border: 1px dashed var(--border-subtle); }
+.rec-cl-item { font-size: 0.6875rem; color: var(--text-muted); padding: 2px 0 2px 12px; }
+.rec-cl-more { font-size: 0.625rem; color: var(--text-muted); padding: 2px 0 2px 12px; }
+.rec-stop-warn { margin-top: 8px; padding: 6px 10px; background: rgba(255,71,87,0.06); border-radius: 4px; font-size: 0.6875rem; color: var(--accent-red); line-height: 1.5; }
+.rec-view-btn { display: block; width: 100%; margin-top: 8px; padding: 8px; text-align: center; font-size: 0.75rem; border-radius: var(--radius); background: var(--primary-subtle); color: var(--primary); border: 1px solid transparent; cursor: pointer; font-family: inherit; transition: all var(--duration) var(--ease); }
+.rec-view-btn:hover { background: rgba(37,99,235,0.12); border-color: var(--primary-dim); }
+.modal-head-actions { display: flex; align-items: center; gap: 6px; }
+.modal-refresh-btn {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: transparent; color: var(--text-secondary); border: 1px solid transparent;
+  cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; justify-content: center;
+  transition: all var(--duration) var(--ease); font-family: inherit;
+}
+.modal-refresh-btn:hover { background: rgba(255,255,255,0.05); border-color: var(--border-subtle); color: var(--text-primary); }
+.modal-refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .pagination {
   display: flex; justify-content: space-between; align-items: center;

@@ -270,9 +270,44 @@ class GuideInfo(BaseModel):
     difficulty: Optional[int] = None
     tools: List[str] = Field(default_factory=list)
     applicable_devices: Optional[str] = None
+    scope: Optional[str] = None
+    maintenance_level: Optional[str] = None
+    checklist: List[str] = Field(default_factory=list)
+    preparation: List[dict] = Field(default_factory=list)
+    safety_control: List[str] = Field(default_factory=list)
+    acceptance_criteria: List[str] = Field(default_factory=list)
+    stop_conditions: List[str] = Field(default_factory=list)
     contributor_name: Optional[str] = None
     is_employee_contribution: bool
     created_at_ts: Optional[int] = None
+
+
+# ============ 5.1 作业指导执行记录 ============
+class GuideExecutionCreate(BaseModel):
+    ticket_id: Optional[int] = None
+    guide_id: int
+
+
+class GuideExecutionUpdate(BaseModel):
+    checklist_status_json: Optional[str] = None
+    steps_status_json: Optional[str] = None
+    status: Optional[str] = None
+    review_remark: Optional[str] = None
+
+
+class GuideExecutionInfo(BaseModel):
+    id: int
+    ticket_id: Optional[int] = None
+    guide_id: int
+    user_id: int
+    user_name: Optional[str] = None
+    guide_title: Optional[str] = None
+    status: str
+    checklist_status: dict = Field(default_factory=dict)
+    steps_status: dict = Field(default_factory=dict)
+    started_at_ts: Optional[int] = None
+    completed_at_ts: Optional[int] = None
+    review_remark: Optional[str] = None
 
 
 # ============ 6. 用户管理 ============

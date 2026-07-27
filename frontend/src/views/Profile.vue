@@ -38,33 +38,6 @@
           </li>
         </ul>
 
-        <div class="aside-sec">
-          <h4>所属角色</h4>
-          <div class="role-tags">
-            <span
-              v-for="(t, i) in roleTags"
-              :key="i"
-              class="role-tag"
-              :class="t.cls"
-            >{{ t.text }}</span>
-          </div>
-        </div>
-
-        <div class="aside-sec">
-          <h4>登录信息</h4>
-          <div class="kv">
-            <span class="k">首次登录</span>
-            <span class="v">{{ userInfo.firstLogin }}</span>
-          </div>
-          <div class="kv">
-            <span class="k">上次登录</span>
-            <span class="v">{{ userInfo.lastLogin }}</span>
-          </div>
-          <div class="kv">
-            <span class="k">登录 IP</span>
-            <span class="v mono">{{ userInfo.lastIp }}</span>
-          </div>
-        </div>
       </div>
 
       <!-- 右侧：信息区 -->
@@ -85,7 +58,7 @@
             </div>
             <div class="form-field">
               <label>工号</label>
-              <input class="input mono" v-model="basic.empNo" disabled />
+              <input class="input mono" v-model="basic.empNo" />
             </div>
             <div class="form-field">
               <label>所属部门</label>
@@ -99,7 +72,7 @@
             </div>
             <div class="form-field">
               <label>入职日期</label>
-              <input class="input mono" :value="basic.joinDate" disabled />
+              <input class="input mono" v-model="basic.joinDate" />
             </div>
           </div>
         </div>
@@ -129,10 +102,9 @@
           </div>
         </div>
 
-        <div class="card main-block contrib-block">
+        <div class="card main-block contrib-block" v-if="isWorker">
           <div class="block-head">
             <h3>📚 我的知识贡献</h3>
-            <button class="btn btn-primary btn-sm" @click="openContrib">+ 我要贡献</button>
           </div>
           <div class="contrib-stats">
             <div class="contrib-stat-item">
@@ -173,10 +145,29 @@
               </div>
             </div>
           </div>
-          <div v-else class="contrib-empty">
-            <div class="ce-icon">📚</div>
-            <div class="ce-title">还没有知识贡献记录</div>
-            <div class="ce-desc">在维修实践中发现 AI 无法解决的问题？提交您的有效方案，经审核后入库知识库！</div>
+          <div v-else>
+            <!-- 无知识贡献时显示作业指导统计 -->
+            <div class="block-head" style="margin-top:18px;padding-top:18px;border-top:1px dashed var(--border-subtle);">
+              <h3>📋 作业指导贡献统计</h3>
+            </div>
+            <div class="contrib-stats">
+              <div class="contrib-stat-item">
+                <div class="cs-num">{{ guideStats.total }}</div>
+                <div class="cs-label">总提交</div>
+              </div>
+              <div class="contrib-stat-item pending">
+                <div class="cs-num">{{ guideStats.pending }}</div>
+                <div class="cs-label">待审核</div>
+              </div>
+              <div class="contrib-stat-item approved">
+                <div class="cs-num">{{ guideStats.completed }}</div>
+                <div class="cs-label">已通过</div>
+              </div>
+              <div class="contrib-stat-item">
+                <div class="cs-num">{{ guideStats.rejected }}</div>
+                <div class="cs-label">已驳回</div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -363,6 +354,7 @@
 <script>
 import {
   getUser,
+  refreshUserFromMe,
   getAvatar,
   setAvatar,
   removeAvatar,
@@ -378,7 +370,7 @@ import {
   REPORT_SOURCE_LABEL
 } from '../utils/knowledge'
 import KnowledgeReport from '../components/KnowledgeReport.vue'
-import { updateProfileApi } from '../utils/api'
+import { updateProfileApi, meApi } from '../utils/api'
 
 const DEPT_OPTIONS = ['设备管理部', '生产运营部', '设备维修中心', '安全环保部']
 
@@ -387,9 +379,9 @@ const ROLE_PROFILE = {
     badge: '维修管理员',
     intro: '负责车间设备维修工作的整体统筹：工单派发与调度、维修工排班与绩效、质量复核、SLA 监控及应急预案管理，保障生产设备高效稳定运行。',
     stats: [
-      { num: 186, label: '累计登录' },
-      { num: 412, label: '派发工单' },
-      { num: 298, label: '复核通过' }
+      { num: 136, label: '累计登录' },
+      { num: 112, label: '派发工单' },
+      { num: 98, label: '复核通过' }
     ],
     roleTags: [
       { cls: 'admin', text: '维修管理员' },
@@ -410,9 +402,9 @@ const ROLE_PROFILE = {
     badge: '维修管理员',
     intro: '负责车间设备维修工作的整体统筹：工单派发与调度、维修工排班与绩效、质量复核、SLA 监控及应急预案管理，保障生产设备高效稳定运行。',
     stats: [
-      { num: 186, label: '累计登录' },
-      { num: 412, label: '派发工单' },
-      { num: 298, label: '复核通过' }
+      { num: 136, label: '累计登录' },
+      { num: 112, label: '派发工单' },
+      { num: 98, label: '复核通过' }
     ],
     roleTags: [
       { cls: 'admin', text: '维修管理员' },
@@ -433,9 +425,9 @@ const ROLE_PROFILE = {
     badge: '一线检修员',
     intro: '负责厂区设备的日常巡检、故障抢修与预防性维护；按作业指导完成检修任务，规范填写维修报告并上报，保障设备安全与可用率。',
     stats: [
-      { num: 241, label: '累计登录' },
-      { num: 356, label: '完成维修' },
-      { num: 487, label: 'AI 辅助检索' }
+      { num: 128, label: '累计登录' },
+      { num: 96, label: '完成维修' },
+      { num: 72, label: 'AI 辅助检索' }
     ],
     roleTags: [
       { cls: 'ops', text: '一线检修员' },
@@ -476,14 +468,6 @@ export default {
       user,
       cfg,
       deptOptions: DEPT_OPTIONS,
-      userInfo: {
-        logins: cfg.stats[0].num,
-        retrievals: 524,
-        cases: 73,
-        firstLogin: cfg.joinDate + ' 09:12',
-        lastLogin: '2026-07-10 15:24',
-        lastIp: '10.128.22.' + (parseInt(hash, 10) % 200 + 10)
-      },
       basic: {
         username: user.username || 'admin',
         realName: name,
@@ -508,6 +492,7 @@ export default {
       reportVisible: false,
       kStats: { total: 0, pending: 0, approved: 0, rejected: 0 },
       myReports: [],
+      guideStats: { total: 0, completed: 0, inProgress: 0, abandoned: 0 },
       _kLoading: false,
       _kHydrated: false,
       _saving: false
@@ -545,14 +530,22 @@ export default {
     stats() {
       return this.cfg.stats
     },
-    roleTags() {
-      return this.cfg.roleTags
-    },
     previewSrc() {
       return resolveAvatarSrc(this.draftAvatar)
     }
   },
   async created() {
+    // 页面加载时优先从服务端拉取最新数据，确保刷新后数据一致
+    try {
+      const serverUser = await meApi()
+      if (serverUser && typeof serverUser === 'object') {
+        this.user = serverUser
+        refreshUserFromMe(serverUser)
+        // 同步到当前 reactive data
+        this._syncFromUser()
+      }
+    } catch (_) { /* fallback: 用本地的 getUser() */ }
+
     this.refreshAvatar()
     window.addEventListener('equipai-avatar-changed', this.refreshAvatar)
     window.addEventListener('equipai-knowledge-changed', this.refreshKnowledge)
@@ -567,16 +560,28 @@ export default {
       this.avatarSrc = resolveAvatarSrc(getAvatar())
     },
     async refreshKnowledge({ initial = false, force = false } = {}) {
+      // 知识贡献卡片仅对一线检修员显示，管理员跳过
+      if (!this.isWorker) return
       const u = (this.user && this.user.username) || 'worker'
       if (this._kLoading && !force) return
       this._kLoading = true
       try {
         const [stats, reports] = await Promise.all([
           fetchUserStats(u),
-          fetchUserReports(u)
+          fetchUserReports(u),
         ])
         this.kStats = stats
         this.myReports = reports
+        // 统计贡献的作业指导（type=guide 的报告）
+        const guideReports = (reports || []).filter(r => r.type === 'guide')
+        this.guideStats = {
+          total: guideReports.length,
+          completed: guideReports.filter(r =>
+            ['approved', 'synced_guide', 'synced_case'].includes(r.status)
+          ).length,
+          pending: guideReports.filter(r => r.status === 'pending').length,
+          rejected: guideReports.filter(r => r.status === 'rejected').length,
+        }
       } catch (_) {
         this.kStats = getUserStats(u)
         this.myReports = getReportsByUser(u)
@@ -662,21 +667,24 @@ export default {
           this.user[k] = u[k]
         }
       }
-      // 同步 reactive store
-      try {
-        const { setUser } = require('../utils/auth')
-        setUser({ ...getUser(), ...this.user })
-      } catch (_) {}
+      // 同步到 localStorage（使用 refreshUserFromMe 确保字段完整性）
+      refreshUserFromMe(u)
       // 同步 basic / contact 当下值，避免残留脏值
+      this._syncFromUser()
+    },
+    _syncFromUser() {
+      // 将 this.user 的最新值同步到 basic / contact 响应式数据
+      const u = this.user
+      if (!u) return
       if (u.fullname) this.basic.realName = u.fullname
-      if (u.emp_no !== undefined) this.basic.empNo = u.emp_no || this.basic.empNo
-      if (u.dept     !== undefined) this.basic.dept = u.dept || this.basic.dept
-      if (u.position !== undefined) this.basic.position = u.position || this.basic.position
-      if (u.join_date !== undefined) this.basic.joinDate = u.join_date || this.basic.joinDate
-      if (u.mobile !== undefined) this.contact.mobile = u.mobile || this.contact.mobile
-      if (u.email  !== undefined) this.contact.email = u.email || this.contact.email
-      if (u.tel    !== undefined) this.contact.tel = u.tel || this.contact.tel
-      if (u.office !== undefined) this.contact.office = u.office || this.contact.office
+      if (u.emp_no !== undefined && u.emp_no !== null) this.basic.empNo = u.emp_no
+      if (u.dept !== undefined && u.dept !== null) this.basic.dept = u.dept
+      if (u.position !== undefined && u.position !== null) this.basic.position = u.position
+      if (u.join_date !== undefined && u.join_date !== null) this.basic.joinDate = u.join_date
+      if (u.mobile !== undefined && u.mobile !== null) this.contact.mobile = u.mobile
+      if (u.email !== undefined && u.email !== null) this.contact.email = u.email
+      if (u.tel !== undefined && u.tel !== null) this.contact.tel = u.tel
+      if (u.office !== undefined && u.office !== null) this.contact.office = u.office
     },
     openAvatarModal() {
       this.draftAvatar = getAvatar()

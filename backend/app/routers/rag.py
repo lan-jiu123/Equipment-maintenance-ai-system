@@ -16,6 +16,7 @@ class RAGRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     document_id: str | None = None
     device_model: str | None = None
+    fault_domain: str | None = None
     top_k: int = Field(default=5, ge=1, le=10)
 
 
@@ -26,6 +27,7 @@ def rag_ask(request: RAGRequest):
             question=request.question,
             document_id=request.document_id,
             device_model=request.device_model,
+            fault_domain=request.fault_domain,
             top_k=request.top_k,
         )
     except ValueError as exc:

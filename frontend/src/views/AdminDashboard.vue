@@ -1156,9 +1156,9 @@ export default {
       this.previewOpen = true
       try {
         const res = await listAttachmentsApi(o.id)
-        this.$set(this.previewTicket, '_attachments', res || [])
+        this.previewTicket._attachments = res || []
       } catch (e) {
-        this.$set(this.previewTicket, '_attachments', [])
+        this.previewTicket._attachments = []
       }
     },
     async deleteOrder(o) {

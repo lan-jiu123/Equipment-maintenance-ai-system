@@ -608,7 +608,7 @@ _GUIDE_SPECS = [
 
 
 def _create_guides(db: Session) -> tuple[list[Guide], Guide]:
-    """从 knowledge/data/guides.json 读 20 条作业指导并写入数据库。"""
+    """从 knowledge/data/guides.json 读作业指导并写入数据库。"""
     guides_file = Path(__file__).resolve().parent.parent.parent / "knowledge" / "data" / "guides.json"
     with open(guides_file, "r", encoding="utf-8") as f:
         specs = json.load(f)
@@ -619,6 +619,11 @@ def _create_guides(db: Session) -> tuple[list[Guide], Guide]:
             {"step": s.get("step", i + 1), "content": s.get("content", ""), "tip": s.get("tip", "")}
             for i, s in enumerate(spec.get("steps", []))
         ]
+        checklist = spec.get("checklist", [])
+        prep = spec.get("preparation", [])
+        safety = spec.get("safety_control", [])
+        accept = spec.get("acceptance_criteria", [])
+        stop = spec.get("stop_conditions", [])
         g = Guide(
             title=spec.get("title", ""),
             device_type=spec.get("device_type", "机械"),
@@ -629,12 +634,18 @@ def _create_guides(db: Session) -> tuple[list[Guide], Guide]:
             difficulty=spec.get("difficulty"),
             tools_json=json.dumps(spec.get("required_tools", []), ensure_ascii=False) if spec.get("required_tools") else None,
             applicable_devices=spec.get("applicable_devices"),
+            scope=spec.get("scope"),
+            maintenance_level=spec.get("maintenance_level"),
+            checklist_json=json.dumps(checklist, ensure_ascii=False) if checklist else None,
+            preparation_json=json.dumps(prep, ensure_ascii=False) if prep else None,
+            safety_control_json=json.dumps(safety, ensure_ascii=False) if safety else None,
+            acceptance_criteria_json=json.dumps(accept, ensure_ascii=False) if accept else None,
+            stop_conditions_json=json.dumps(stop, ensure_ascii=False) if stop else None,
             created_at=_ts_2026(max_days_ago=180),
         )
         db.add(g)
         guides.append(g)
     db.flush()
-    # 最后一条（有限空间作业规范）留给"员工贡献入库"关联
     return guides, guides[-1]
 
 

@@ -31,6 +31,7 @@ async def diagnose_image(
     note: str = Form(default="", max_length=500),
     document_id: str | None = Form(default=None),
     device_model: str | None = Form(default=None),
+    device_type: str | None = Form(default=None),
     top_k: int = Form(default=5, ge=1, le=10),
 ):
     mime_type = (file.content_type or "").lower()
@@ -47,12 +48,14 @@ async def diagnose_image(
         raise HTTPException(status_code=415, detail="文件内容与图片格式不符")
 
     try:
-        analysis, vision_via = analyze_image(content, mime_type, note)
+        analysis, vision_via = analyze_image(content, mime_type, note, filename=file.filename or "")
         query = build_retrieval_query(analysis, note)
+        fault_domain = analysis.get("fault_domain", "") or device_type or ""
         rag = answer_question(
             question=query or "识别图片中的设备部件并检索相关检修资料",
             document_id=document_id,
             device_model=device_model,
+            fault_domain=fault_domain,
             top_k=top_k,
             min_lexical_coverage=0.30,
             min_matched_terms=2,
