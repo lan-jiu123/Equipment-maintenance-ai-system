@@ -86,6 +86,7 @@ class Device(Base):
 
 # ============= 工单表 =============
 TICKET_PENDING = "pending"   # 待派单
+TICKET_ASSIGNED = "assigned" # 已派单，等待维修工确认
 TICKET_DOING = "doing"       # 进行中
 TICKET_DONE = "done"         # 已完成
 TICKET_OVER = "over"         # 超时
@@ -100,6 +101,7 @@ class Ticket(Base):
     title = Column(String(255), nullable=False)
     device_id = Column(Integer, ForeignKey("devices.id"), nullable=True)
     device_name = Column(String(255), nullable=True)
+    category = Column(String(16), nullable=False, default="机械")  # 机械/电气/安全/仪表/液压
     level = Column(String(16), nullable=False, default="mid")  # low/mid/high
     status = Column(String(32), nullable=False, default=TICKET_PENDING, index=True)
     submitter_id = Column(Integer, ForeignKey("users.id"), nullable=False)

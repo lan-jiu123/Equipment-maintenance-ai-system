@@ -5,7 +5,7 @@ Pydantic 入参/出参 DTO
 """
 
 from __future__ import annotations
-from typing import Generic, TypeVar, Optional, Any, List
+from typing import Generic, TypeVar, Optional, Any, List, Literal
 from datetime import datetime
 
 try:
@@ -152,14 +152,17 @@ class TicketCreate(BaseModel):
     title: str = Field(..., min_length=2, max_length=255)
     device_id: Optional[int] = None
     device_name: Optional[str] = None
+    category: Literal["机械", "电气", "安全", "仪表", "液压"]
     level: str = Field(default="mid", description="low/mid/high")
     problem: str = Field(..., min_length=1)
     assignee_id: Optional[int] = Field(default=None, description="指定派单员，不填则待派单")
+    remark: Optional[str] = Field(default=None, max_length=1000, description="派单备注")
 
 
 class TicketAssign(BaseModel):
     assignee_id: int = Field(..., description="指派的维修员 ID")
     level: Optional[str] = Field(default=None, description="优先级：low/mid/high，不传则保持原值")
+    remark: Optional[str] = Field(default=None, max_length=1000, description="派单备注")
 
 
 class TicketComplete(BaseModel):
@@ -172,6 +175,7 @@ class TicketInfo(BaseModel):
     title: str
     device_id: Optional[int] = None
     device_name: Optional[str] = None
+    category: str
     level: str
     level_label: str
     status: str
@@ -181,6 +185,7 @@ class TicketInfo(BaseModel):
     assignee_id: Optional[int] = None
     problem: Optional[str] = None
     solution: Optional[str] = None
+    remark: Optional[str] = None
     submit_time_ts: Optional[int] = None
     finish_time_ts: Optional[int] = None
 

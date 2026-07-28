@@ -81,10 +81,9 @@
       <!-- 近期故障趋势 -->
       <div class="chart-panel">
         <div class="panel-header">
-          <h2 class="panel-title">设备健康趋势</h2>
+          <h2 class="panel-title">新增维修工单趋势</h2>
           <span class="panel-hint trend-legend">
             <span class="legend-item" v-if="trendRange === 7"><span class="legend-line this-week"></span>本周</span>
-            <span class="legend-item" v-if="trendRange === 7"><span class="legend-line prev-week"></span>前7天</span>
             <span class="trend-range">
               <button :class="{ active: trendRange === 7 }" @click="trendRange = 7">7天</button>
               <button :class="{ active: trendRange === 30 }" @click="trendRange = 30">前30天</button>
@@ -114,30 +113,13 @@
                 <stop offset="0%"   stop-color="#2563eb" />
                 <stop offset="100%" stop-color="#06b6d4" />
               </linearGradient>
-              <linearGradient id="lineFillPrev" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%"   stop-color="#f59e0b" stop-opacity="0.18" />
-                <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
-              </linearGradient>
-              <linearGradient id="lineStrokePrev" x1="0" x2="1" y1="0" y2="0">
-                <stop offset="0%"   stop-color="#f59e0b" />
-                <stop offset="100%" stop-color="#fb923c" />
-              </linearGradient>
             </defs>
             <path :d="areaPath" fill="url(#lineFill)" />
             <polyline :points="linePoints" fill="none" stroke="url(#lineStroke)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-            <path v-if="trendRange === 7" :d="areaPathPrev" fill="url(#lineFillPrev)" />
-            <polyline v-if="trendRange === 7" :points="linePointsPrev" fill="none" stroke="url(#lineStrokePrev)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4" />
             <g class="data-points">
               <g v-for="(p, i) in dataPoints" :key="i">
                 <circle :cx="p.x" :cy="p.y" r="6" fill="var(--bg-deep)" stroke="url(#lineStroke)" stroke-width="2.5" />
                 <circle :cx="p.x" :cy="p.y" r="2.5" fill="#2563eb" />
-                <text class="p-val" :x="p.x" :y="p.y - 12" text-anchor="middle">{{ p.v }}</text>
-              </g>
-            </g>
-            <g class="data-points-prev" v-if="trendRange === 7">
-              <g v-for="(p, i) in dataPointsPrev" :key="i">
-                <circle :cx="p.x" :cy="p.y" r="6" fill="var(--bg-deep)" stroke="url(#lineStrokePrev)" stroke-width="2.5" />
-                <circle :cx="p.x" :cy="p.y" r="2.5" fill="#f59e0b" />
                 <text class="p-val" :x="p.x" :y="p.y - 12" text-anchor="middle">{{ p.v }}</text>
               </g>
             </g>
@@ -158,26 +140,31 @@
           <span class="panel-hint">本月累计</span>
         </div>
         <div class="task-grid">
-          <div class="task-card">
+          <button type="button" class="task-card" @click="goOrders('pending')">
             <div class="task-top"><div class="task-dot pending"></div><div class="task-label">待派单</div></div>
             <div class="task-value pending-val">{{ tasks.pending }}</div>
             <div class="task-bar"><div class="task-fill pending-fill" :style="{ width: taskPercent(tasks.pending) + '%' }"></div></div>
-          </div>
-          <div class="task-card">
+          </button>
+          <button type="button" class="task-card" @click="goOrders('confirming')">
+            <div class="task-top"><div class="task-dot confirming"></div><div class="task-label">待确认</div></div>
+            <div class="task-value confirming-val">{{ tasks.assigned }}</div>
+            <div class="task-bar"><div class="task-fill confirming-fill" :style="{ width: taskPercent(tasks.assigned) + '%' }"></div></div>
+          </button>
+          <button type="button" class="task-card" @click="goOrders('ongoing')">
             <div class="task-top"><div class="task-dot doing"></div><div class="task-label">进行中</div></div>
             <div class="task-value doing-val">{{ tasks.doing }}</div>
             <div class="task-bar"><div class="task-fill doing-fill" :style="{ width: taskPercent(tasks.doing) + '%' }"></div></div>
-          </div>
-          <div class="task-card">
+          </button>
+          <button type="button" class="task-card" @click="goOrders('done')">
             <div class="task-top"><div class="task-dot done"></div><div class="task-label">已完成</div></div>
             <div class="task-value done-val">{{ tasks.done }}</div>
             <div class="task-bar"><div class="task-fill done-fill" :style="{ width: taskPercent(tasks.done) + '%' }"></div></div>
-          </div>
-          <div class="task-card">
+          </button>
+          <button type="button" class="task-card" @click="goOrders('overdue')">
             <div class="task-top"><div class="task-dot over"></div><div class="task-label">超时</div></div>
             <div class="task-value over-val">{{ tasks.over }}</div>
             <div class="task-bar"><div class="task-fill over-fill" :style="{ width: taskPercent(tasks.over) + '%' }"></div></div>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -223,11 +210,10 @@ export default {
       currentTime: '',
       currentDate: '',
       overview: { total: 0, ok: 0, repair: 0, down: 0 },
-      tasks:    { pending: 0, doing: 0, done: 0, over: 0 },
+      tasks:    { pending: 0, assigned: 0, doing: 0, done: 0, over: 0 },
       reportStats: { total: 0, pending: 0, approved: 0, synced: 0 },
       pieData: [],
       trendData: [],
-      trendPrev: [],
       trendRange: 7,
       loading: false,
       _retryTimer: null
@@ -235,7 +221,7 @@ export default {
   },
   computed: {
     todoTasks() {
-      return this.tasks.pending + this.tasks.doing + this.tasks.over + this.reportStats.pending
+      return this.tasks.pending + this.tasks.assigned + this.tasks.doing + this.tasks.over + this.reportStats.pending
     },
     adminName() {
       const u = getUser()
@@ -250,11 +236,11 @@ export default {
       return this.overview.total === 0 ? 0 : Math.round(this.overview.ok / this.overview.total * 100)
     },
     donePercent() {
-      const total = this.tasks.pending + this.tasks.doing + this.tasks.done + this.tasks.over
+      const total = this.tasks.pending + this.tasks.assigned + this.tasks.doing + this.tasks.done + this.tasks.over
       return total === 0 ? 0 : Math.round(this.tasks.done / total * 100)
     },
     tasksTotal() {
-      return this.tasks.pending + this.tasks.doing + this.tasks.done + this.tasks.over
+      return this.tasks.pending + this.tasks.assigned + this.tasks.doing + this.tasks.done + this.tasks.over
     },
     pieGradient() {
       if (!this.pieData || this.pieData.length === 0) return 'conic-gradient(#3b5fae 0 0)'
@@ -299,10 +285,6 @@ export default {
       }
       return ticks
     },
-    trendPrevSlice() {
-      const range = this.trendRange
-      return Array.isArray(this.trendPrev) ? this.trendPrev.slice(-range) : []
-    },
     dataPoints() {
       const data = this.trendSlice
       const n = data.length
@@ -324,32 +306,6 @@ export default {
     },
     areaPath() {
       const pts = this.dataPoints
-      if (!pts.length) return ''
-      const first = pts[0], last = pts[pts.length - 1]
-      const poly = pts.map(p => `L${p.x},${p.y}`).join(' ').replace(/^L/, 'M')
-      return `${poly} L${last.x},170 L${first.x},170 Z`
-    },
-    dataPointsPrev() {
-      const data = this.trendPrevSlice
-      const n = data.length
-      if (n < 2) return []
-      const maxV = 15
-      const xStep = (580 - 40) / (n - 1)
-      const yMin = 170, yMax = 35
-      return data.map((d, i) => {
-        const v = Number(d.v) || 0
-        return {
-          x: 40 + i * xStep,
-          y: yMin - (v / maxV) * (yMin - yMax),
-          v
-        }
-      })
-    },
-    linePointsPrev() {
-      return this.dataPointsPrev.length ? this.dataPointsPrev.map(p => `${p.x},${p.y}`).join(' ') : '40,190 580,190'
-    },
-    areaPathPrev() {
-      const pts = this.dataPointsPrev
       if (!pts.length) return ''
       const first = pts[0], last = pts[pts.length - 1]
       const poly = pts.map(p => `L${p.x},${p.y}`).join(' ').replace(/^L/, 'M')
@@ -381,6 +337,7 @@ export default {
         }
         this.tasks = {
           pending: Number((d.tickets || {}).pending || 0),
+          assigned: Number((d.tickets || {}).assigned || 0),
           doing:   Number((d.tickets || {}).doing || 0),
           done:    Number((d.tickets || {}).done || 0),
           over:    Number((d.tickets || {}).over || 0)
@@ -393,7 +350,6 @@ export default {
         }
         this.pieData = Array.isArray(d.pie) ? d.pie : []
         this.trendData = Array.isArray(d.trend) ? d.trend : []
-        this.trendPrev = Array.isArray(d.trend_prev) ? d.trend_prev : []
       } catch (e) {
         if (!this._retryTimer) {
           this._retryTimer = setTimeout(() => {
@@ -409,6 +365,9 @@ export default {
       const q = { tab: 'knowledge' }
       if (kr && ['all', 'pending', 'approved', 'synced', 'rejected'].indexOf(kr) >= 0) q.kr = kr
       this.$router.push({ path: '/admin', query: q })
+    },
+    goOrders(order) {
+      this.$router.push({ path: '/admin', query: { tab: 'order', order } })
     },
     updateTime() {
       const now = new Date()
@@ -502,7 +461,7 @@ export default {
 /* ====================== 设备运行概览 ====================== */
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 10px;
 }
 .ov-card {
@@ -595,7 +554,7 @@ export default {
 /* ====================== 维修任务统计 ====================== */
 .task-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
 }
 .task-card { padding: 20px; }
@@ -609,6 +568,19 @@ export default {
   border-radius: var(--radius);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration) var(--ease), transform var(--duration) var(--ease);
+}
+.task-card:hover {
+  border-color: var(--border-active);
+  transform: translateY(-1px);
+}
+.task-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 .task-top {
   display: flex; align-items: center; gap: 5px;
@@ -618,6 +590,7 @@ export default {
   width: 6px; height: 6px; border-radius: 50%;
 }
 .task-dot.pending { background: var(--accent-orange); }
+.task-dot.confirming { background: var(--accent-purple); }
 .task-dot.doing   { background: var(--accent-cyan); }
 .task-dot.done    { background: var(--accent-green); }
 .task-dot.over    { background: var(--accent-red); }
@@ -630,6 +603,7 @@ export default {
   margin-bottom: 4px;
 }
 .task-value.pending-val { color: var(--accent-orange); }
+.task-value.confirming-val { color: var(--accent-purple); }
 .task-value.doing-val   { color: var(--accent-cyan); }
 .task-value.done-val    { color: var(--accent-green); }
 .task-value.over-val    { color: var(--accent-red); }
@@ -644,6 +618,7 @@ export default {
   transition: width 0.6s var(--ease);
 }
 .task-fill.pending-fill { background: linear-gradient(90deg, var(--accent-orange), #fbbf24); }
+.task-fill.confirming-fill { background: linear-gradient(90deg, var(--accent-purple), #c084fc); }
 .task-fill.doing-fill   { background: linear-gradient(90deg, var(--accent-cyan), #67e8f9); }
 .task-fill.done-fill    { background: linear-gradient(90deg, var(--accent-green), #34d399); }
 .task-fill.over-fill    { background: linear-gradient(90deg, var(--accent-red), #f87171); }
@@ -686,8 +661,9 @@ export default {
 }
 .pie-hole {
   position: absolute; inset: 16px;
+  z-index: 1;
   border-radius: 50%;
-  background: var(--bg-card);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
@@ -733,14 +709,7 @@ export default {
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
 }
-.data-points-prev .p-val {
-  fill: #f59e0b;
-  font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 600;
-}
-
-/* 折线图图例（本周 / 上周）*/
+/* 折线图图例 */
 .trend-legend {
   display: inline-flex;
   align-items: center;
@@ -762,11 +731,6 @@ export default {
 .legend-line.this-week {
   border-top-color: #2563eb;
 }
-.legend-line.prev-week {
-  border-top-color: #f59e0b;
-  border-top-style: dashed;
-}
-
 /* 折线图时间范围切换 */
 .trend-range {
   display: inline-flex;

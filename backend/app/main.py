@@ -31,6 +31,9 @@ from sqlalchemy.orm import Session
 def _utcnow():
     return datetime.now(timezone.utc)
 
+
+APP_TIMEZONE = timezone(timedelta(hours=8))
+
 # ===== 配置 =====
 # 显式加载 .env（修复 pydantic-settings 读 UTF-8 BOM 编码 .env 失败导致 key_len=0 的问题）
 _load_env_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -59,7 +62,8 @@ from .models import User, Device, Ticket, KnowledgeReport, Case, Guide, Notifica
     NOTIFY_TYPE_REPORT_SYNCED, NOTIFY_TYPE_TICKET_ASSIGNED, NOTIFY_TYPE_TICKET_CREATED, \
     NOTIFY_TYPE_DEVICE_FAULT, NOTIFY_TYPE_SYSTEM, \
     DEVICE_STATUS_NORMAL, DEVICE_STATUS_REPAIRING, DEVICE_STATUS_DOWN, \
-    EXEC_STATUS_IN_PROGRESS, EXEC_STATUS_COMPLETED, EXEC_STATUS_ABANDONED
+    EXEC_STATUS_IN_PROGRESS, EXEC_STATUS_COMPLETED, EXEC_STATUS_ABANDONED, \
+    TICKET_PENDING, TICKET_ASSIGNED, TICKET_DOING, TICKET_OVER
 # ===== 模型接入：RAG 路由 + 内置知识导入 =====
 from .services.knowledge_bootstrap import bootstrap_builtin_knowledge
 from .services.knowledge_graph import save_case, build_graph_from_db
@@ -215,6 +219,7 @@ def _on_startup():
     # 2. 补齐旧表迁移列（profile + guide 新字段）
     _ensure_profile_columns(engine)
     _ensure_guide_columns(engine)
+    ticket_category_added = _ensure_ticket_category_column(engine)
     # 3. 只有 users 为空才 seed，避免重复插入
     from .database import SessionLocal
     db = SessionLocal()
@@ -222,6 +227,105 @@ def _on_startup():
         seed_if_empty(db)
         _reseed_guides(db)
         _backfill_notification_history_if_empty(db)
+        # 兼容上一版本：已指定维修工但仍为 pending 的工单迁入“待确认”。
+        assigned_status_migrated = db.query(Ticket).filter(
+            Ticket.status == TICKET_PENDING,
+            Ticket.assignee_id.isnot(None),
+        ).update({Ticket.status: TICKET_ASSIGNED}, synchronize_session=False)
+        categorized_tickets = 0
+        if ticket_category_added:
+            category_map = {
+                "机械动力": "机械",
+                "电气控制": "电气",
+                "安全保护": "安全",
+                "工业仪表": "仪表",
+                "液压执行": "液压",
+            }
+            devices_by_id = {d.id: d for d in db.query(Device).all()}
+            for ticket in db.query(Ticket).all():
+                device = devices_by_id.get(ticket.device_id)
+                ticket.category = category_map.get(
+                    device.tag if device else None, "机械"
+                )
+                categorized_tickets += 1
+        # 旧版演示数据把北京时间小时误当成 UTC 保存，可能产生未来工单。
+        # 将未来的提交时间逐日回退，保留原有时分与相对排序。
+        now_utc_naive = _utcnow().replace(tzinfo=None)
+        future_tickets = db.query(Ticket).filter(
+            Ticket.submit_time > now_utc_naive
+        ).all()
+        for ticket in future_tickets:
+            while ticket.submit_time and ticket.submit_time > now_utc_naive:
+                ticket.submit_time -= timedelta(days=1)
+        # 旧版派维修只保存了“设备编号 设备名称”，补齐缺失的 device_id。
+        linked_tickets = 0
+        legacy_tickets = db.query(Ticket).filter(
+            Ticket.device_id.is_(None),
+            Ticket.device_name.isnot(None),
+        ).all()
+        for ticket in legacy_tickets:
+            device_code = (ticket.device_name or "").strip().split(maxsplit=1)[0]
+            if not device_code:
+                continue
+            device = db.query(Device).filter(Device.code == device_code).first()
+            if device:
+                ticket.device_id = device.id
+                linked_tickets += 1
+        # 已进入处理流程的工单，其关联设备应处于“维修中”。
+        active_device_ids = [
+            row[0] for row in db.query(Ticket.device_id).filter(
+                Ticket.device_id.isnot(None),
+                Ticket.status.in_([TICKET_DOING, TICKET_OVER]),
+            ).distinct().all()
+        ]
+        repairing_devices = 0
+        for device_id in active_device_ids:
+            device = db.query(Device).filter(Device.id == device_id).first()
+            if device and device.status == DEVICE_STATUS_DOWN:
+                device.status = DEVICE_STATUS_REPAIRING
+                repairing_devices += 1
+        # 旧版初始化数据只标记了“故障停机”，没有故障报告内容。
+        # 为这些演示设备补齐上报信息；真实故障上报已有的数据不会被覆盖。
+        default_reporter = (
+            db.query(User).filter(User.username == "worker3").first()
+            or db.query(User).filter(User.username == "admin").first()
+        )
+        completed_fault_reports = 0
+        missing_fault_devices = db.query(Device).filter(
+            Device.status == DEVICE_STATUS_DOWN,
+            Device.fault_desc.is_(None),
+            Device.fault_time.is_(None),
+            Device.fault_reporter_id.is_(None),
+        ).all()
+        for device in missing_fault_devices:
+            prefix = (device.code or "").split("-", 1)[0].upper()
+            if not device.fault_desc:
+                if prefix == "P":
+                    device.fault_desc = (
+                        "巡检发现离心泵运行异响，出口压力持续波动且振动值超过报警阈值；"
+                        "现场已执行停机隔离，等待维修人员进一步检查轴承、联轴器及汽蚀情况。"
+                    )
+                elif prefix == "VA":
+                    device.fault_desc = (
+                        "巡检发现比例阀组响应异常、阀芯中位漂移，执行机构动作不稳定；"
+                        "复位后故障仍存在，现场已停机并等待检修。"
+                    )
+                else:
+                    device.fault_desc = (
+                        f"巡检发现{device.name}运行参数异常并触发故障停机，"
+                        "现场已完成安全隔离，具体故障原因待维修人员进一步诊断。"
+                    )
+            if not device.fault_reporter_id and default_reporter:
+                device.fault_reporter_id = default_reporter.id
+            if not device.fault_time:
+                device.fault_time = _utcnow() - timedelta(hours=(device.id % 8) + 1)
+            completed_fault_reports += 1
+        if (
+            assigned_status_migrated or future_tickets or linked_tickets or repairing_devices
+            or completed_fault_reports or categorized_tickets
+        ):
+            db.commit()
+
     finally:
         db.close()
     # 4. 模型接入：RAG 知识库表初始化 + 内置知识文档自动导入（幂等）
@@ -282,6 +386,25 @@ def _ensure_profile_columns(engine) -> None:
                 conn.commit()
         except Exception:
             pass
+
+
+def _ensure_ticket_category_column(engine) -> bool:
+    """为旧版 SQLite 工单表增加类别字段，返回本次是否新增。"""
+    try:
+        with engine.connect() as conn:
+            existing = {r[1] for r in conn.execute(
+                text("PRAGMA table_info(tickets)")
+            ).fetchall()}
+        if "category" in existing:
+            return False
+        with engine.connect() as conn:
+            conn.execute(text(
+                "ALTER TABLE tickets ADD COLUMN category TEXT NOT NULL DEFAULT '机械'"
+            ))
+            conn.commit()
+        return True
+    except Exception:
+        return False
 
 
 # ============================================================
@@ -585,7 +708,7 @@ def dashboard_overview(
     # 阶段 A 先返回空结构占位，阶段 B 再按真表 count，保证前端不会 404
     from .models import (
         DEVICE_STATUS_NORMAL, DEVICE_STATUS_REPAIRING, DEVICE_STATUS_DOWN,
-        TICKET_PENDING, TICKET_DOING, TICKET_DONE, TICKET_OVER,
+        TICKET_PENDING, TICKET_ASSIGNED, TICKET_DOING, TICKET_DONE, TICKET_OVER,
     )
     def cnt(model, *conds):
         q = db.query(model)
@@ -602,6 +725,7 @@ def dashboard_overview(
         },
         "tickets": {
             "pending": cnt(Ticket, Ticket.status == TICKET_PENDING),
+            "assigned": cnt(Ticket, Ticket.status == TICKET_ASSIGNED),
             "doing": cnt(Ticket, Ticket.status == TICKET_DOING),
             "done": cnt(Ticket, Ticket.status == TICKET_DONE),
             "over": cnt(Ticket, Ticket.status == TICKET_OVER),
@@ -627,8 +751,8 @@ def dashboard_overview(
         {"name": "维修中",   "value": data["devices"]["repair"],  "color": "#06b6d4"},
         {"name": "故障停机", "value": data["devices"]["down"],    "color": "#ef4444"},
     ]
-    # 折线图：近 30 天新增工单数 + 去年同期对比（各 30 天，共 60 天）
-    now_local = datetime.now()
+    # 折线图：近 30 天新增工单数
+    now_local = datetime.now(APP_TIMEZONE)
     trend = []
     for i in range(29, -1, -1):
         day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=i)
@@ -641,9 +765,10 @@ def dashboard_overview(
         trend.append({"label": t_label, "v": day_tickets})
     data["trend"] = trend
 
-    # 前 30 天同期对比（再往前 30 天），用于折线图叠加对比
+    # 当前近 7 天之前紧邻的 7 天，用于 7 天视图的“前 7 天”对比。
+    # 当前序列最后 7 项是今天至前 6 天；对比序列为前 7 天至前 13 天。
     trend_prev = []
-    for i in range(59, 29, -1):
+    for i in range(13, 6, -1):
         day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=i)
         day_end = day_start + timedelta(days=1)
         t_label = f"{day_start.month}/{day_start.day}"
@@ -658,7 +783,7 @@ def dashboard_overview(
     events: list[dict] = []
     for t in db.query(Ticket).order_by(Ticket.submit_time.desc()).limit(8).all():
         when = int(t.submit_time.timestamp()) if t.submit_time else int(time.time())
-        status_label = {"pending": "待派单", "doing": "处理中", "done": "已完成", "over": "超时"}.get(t.status, t.status)
+        status_label = {"pending": "待派单", "assigned": "待确认", "doing": "处理中", "done": "已完成", "over": "超时"}.get(t.status, t.status)
         events.append({"time": when, "title": t.title, "type": "ticket",
                        "status": t.status, "status_label": status_label,
                        "device": t.device_name, "user": "系统"})
@@ -811,6 +936,7 @@ DEVICE_STATUS_LABELS = {
 
 TICKET_STATUS_LABELS = {
     "pending": "待派单",
+    "assigned": "待确认",
     "doing": "进行中",
     "done": "已完成",
     "over": "超时",
@@ -905,13 +1031,23 @@ def _to_ticket_info(t: Ticket, db: Session) -> TicketInfo:
     if t.assignee_id:
         u = db.query(User).filter(User.id == t.assignee_id).first()
         asg_name = u.fullname if u else None
+    status_label = TICKET_STATUS_LABELS.get(t.status, t.status)
+    remark = None
+    if t.extra:
+        try:
+            extra_data = json.loads(t.extra)
+            if isinstance(extra_data, dict):
+                remark = extra_data.get("dispatch_remark")
+        except (TypeError, ValueError):
+            pass
     return TicketInfo(
         id=t.id, code=t.code, title=t.title,
         device_id=t.device_id, device_name=t.device_name,
+        category=t.category or "机械",
         level=t.level, level_label=TICKET_LEVEL_LABELS.get(t.level, t.level),
-        status=t.status, status_label=TICKET_STATUS_LABELS.get(t.status, t.status),
+        status=t.status, status_label=status_label,
         submitter_name=sub_name, assignee_name=asg_name, assignee_id=t.assignee_id,
-        problem=t.problem, solution=t.solution,
+        problem=t.problem, solution=t.solution, remark=remark,
         submit_time_ts=_ts(t.submit_time), finish_time_ts=_ts(t.finish_time),
     )
 
@@ -1280,28 +1416,47 @@ def get_ticket(ticket_id: int, current: User = Depends(get_current_user),
 def create_ticket(form: TicketCreate, current: User = Depends(get_current_user),
                   db: Session = Depends(get_db)):
     dev_name = form.device_name
-    if form.device_id and not dev_name:
-        d = db.query(Device).filter(Device.id == form.device_id).first()
-        if d:
-            dev_name = f"{d.code} {d.name}"
+    device = None
+    if form.device_id:
+        device = db.query(Device).filter(Device.id == form.device_id).first()
+    elif dev_name:
+        # 兼容旧前端：从“设备编号 设备名称”中识别设备编号。
+        device_code = dev_name.strip().split(maxsplit=1)[0]
+        device = db.query(Device).filter(Device.code == device_code).first()
+        if not device:
+            device = db.query(Device).filter(Device.name == dev_name.strip()).first()
+    if device and not dev_name:
+        dev_name = f"{device.code} {device.name}"
     now = _utcnow()
-    existing_codes = [r[0] for r in db.query(Ticket.code).filter(Ticket.code.like(f'TK-{now.strftime("%Y%m%d")}-%')).all()]
+    code_date = now.astimezone(APP_TIMEZONE).strftime("%Y%m%d")
+    existing_codes = [r[0] for r in db.query(Ticket.code).filter(Ticket.code.like(f"TK-{code_date}-%")).all()]
     seq = len(existing_codes) + 1
-    while f"TK-{now.strftime('%Y%m%d')}-{seq:03d}" in existing_codes:
+    while f"TK-{code_date}-{seq:03d}" in existing_codes:
         seq += 1
-    code = f"TK-{now.strftime('%Y%m%d')}-{seq:03d}"
-    status = "pending"
+    code = f"TK-{code_date}-{seq:03d}"
     assignee_id = form.assignee_id
+    assigned_user = None
+    # 即使创建时已指定维修工，也必须由维修工确认接单后才进入“进行中”。
+    status = TICKET_ASSIGNED if assignee_id else TICKET_PENDING
     if assignee_id:
-        u = db.query(User).filter(User.id == assignee_id).first()
-        if not u or u.role not in (ROLE_WORKER, ROLE_MANAGER, ROLE_SYSADMIN):
+        assigned_user = db.query(User).filter(User.id == assignee_id).first()
+        if not assigned_user or assigned_user.role not in (ROLE_WORKER, ROLE_MANAGER, ROLE_SYSADMIN):
             return fail("派单目标用户不存在或不是维修人员", 400)
     t = Ticket(
         code=code, title=form.title.strip(),
-        device_id=form.device_id, device_name=dev_name,
+        device_id=device.id if device else form.device_id, device_name=dev_name,
+        category=form.category,
         level=form.level or "mid", status=status,
         submitter_id=current.id, assignee_id=assignee_id,
         problem=form.problem.strip(), submit_time=now,
+        extra=(
+            json.dumps(
+                {"dispatch_remark": form.remark.strip()},
+                ensure_ascii=False,
+            )
+            if form.remark and form.remark.strip()
+            else None
+        ),
     )
     db.add(t); db.commit(); db.refresh(t)
 
@@ -1314,6 +1469,17 @@ def create_ticket(form: TicketCreate, current: User = Depends(get_current_user),
         content=f"提交人：{current.fullname or current.username}，设备：{dev_name}，等级：{form.level or 'mid'}",
         related_id=t.id,
     )
+    if assigned_user:
+        _push_notify(
+            db, user_ids=[assigned_user.id],
+            type=NOTIFY_TYPE_TICKET_ASSIGNED,
+            title="🎫 新工单已派发给您",
+            content=(
+                f"管理员【{current.fullname or current.username}】将工单《{t.title}》"
+                "派发给您，请确认接单并及时处理。"
+            ),
+            related_id=t.id,
+        )
 
     return ok(_to_ticket_info(t, db), "工单创建成功" + ("并已派单" if assignee_id else "，等待派单"))
 
@@ -1332,14 +1498,29 @@ def assign_ticket(ticket_id: int, form: TicketAssign,
     if not u:
         return fail("目标维修员不存在", 400)
     t.assignee_id = u.id
+    # 派单只指定负责人，维修工确认前仍属于待处理状态。
+    if t.status not in (TICKET_PENDING, TICKET_ASSIGNED):
+        return fail("只有待派单或待确认工单可以派单", 400)
+    t.status = TICKET_ASSIGNED
     if form.level and form.level in ("low", "mid", "high"):
         t.level = form.level
+    if form.remark and form.remark.strip():
+        extra_data = {}
+        if t.extra:
+            try:
+                parsed = json.loads(t.extra)
+                if isinstance(parsed, dict):
+                    extra_data = parsed
+            except (TypeError, ValueError):
+                pass
+        extra_data["dispatch_remark"] = form.remark.strip()
+        t.extra = json.dumps(extra_data, ensure_ascii=False)
     db.commit(); db.refresh(t)
     _push_notify(
         db, user_ids=[u.id],
         type=NOTIFY_TYPE_TICKET_ASSIGNED,
         title=f"🎫 新工单已派发给您",
-        content=f"管理员【{current.fullname}】将工单《{t.title}》派发给您，请及时处理。",
+        content=f"管理员【{current.fullname}】将工单《{t.title}》派发给您，请确认接单并及时处理。",
         related_id=t.id,
     )
     return ok(_to_ticket_info(t, db), f"已派单给 {u.fullname}")
@@ -1351,11 +1532,17 @@ def accept_ticket(ticket_id: int, current: User = Depends(get_current_user),
     t = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not t:
         return fail("工单不存在", 404)
-    if t.assignee_id and t.assignee_id != current.id:
+    if not t.assignee_id:
+        return fail("该工单尚未派单，无法确认接单", 400)
+    if t.assignee_id != current.id:
         return fail("该工单已指派给其他人，您无法接单", 403)
-    t.assignee_id = current.id
-    if t.status == "pending":
-        t.status = "doing"
+    if t.status != TICKET_ASSIGNED:
+        return fail("该工单已确认或无法接单", 400)
+    t.status = TICKET_DOING
+    if t.device_id:
+        device = db.query(Device).filter(Device.id == t.device_id).first()
+        if device and device.status == DEVICE_STATUS_DOWN:
+            device.status = DEVICE_STATUS_REPAIRING
     db.commit(); db.refresh(t)
     return ok(_to_ticket_info(t, db), "接单成功")
 

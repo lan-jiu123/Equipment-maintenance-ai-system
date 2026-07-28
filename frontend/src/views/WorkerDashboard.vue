@@ -521,7 +521,8 @@ function _mapTicket(t, meId) {
     priority: LEVEL_TO_PRIORITY[level] || 'mid',
     level: level,
     level_label: t.level_label || LEVEL_LABEL[level] || '中',
-    status: t.status === 'pending' && isAssignedToMe ? 'pending'
+    status: t.status === 'assigned' && isAssignedToMe ? 'pending'
+          : t.status === 'pending' && isAssignedToMe ? 'pending'
           : t.status === 'pending' && !isAssignedToMe ? 'pending'
           : (t.status === 'processing' || t.status === 'doing' || t.status === 'overdue' || t.status === 'over') ? 'ongoing'
           : (t.status === 'completed' || t.status === 'done') ? 'done'
@@ -529,6 +530,7 @@ function _mapTicket(t, meId) {
     status_label: t.status_label || '-',
     submitter_name: t.submitter_name || '系统',
     assignee_name: t.assignee_name,
+    assignee_id: t.assignee_id,
     problem: t.problem,
     solution: t.solution,
     createdText: _tsToText(t.submit_time_ts),
@@ -595,7 +597,9 @@ export default {
     },
     myActive() {
       const meId = this.meId
-      return this.allTickets.filter(t => t.status === 'pending')
+      return this.allTickets.filter(
+        t => t.status === 'pending' && Number(t.assignee_id) === Number(meId)
+      )
     },
     pendingMine() { return this.myActive.length },
     ongoingMine() { return this.allTickets.filter(t => t.status === 'ongoing').length },

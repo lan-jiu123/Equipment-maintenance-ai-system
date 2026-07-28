@@ -81,7 +81,7 @@
             <th style="width:110px">SLA</th>
             <th style="width:140px">创建时间</th>
             <th style="width:90px">状态</th>
-            <th style="width:150px">操作</th>
+            <th style="width:220px">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -116,14 +116,16 @@
               <span class="status-pill" :class="'st-' + t.status">{{ t.status_label }}</span>
             </td>
             <td>
-              <button class="btn btn-primary btn-xs" v-if="t.status === 'assigned' || t.status === 'pending'" :disabled="t._op" @click="handle(t)">
+              <div class="row-actions">
+              <button class="btn btn-primary btn-xs" v-if="(t.status === 'assigned' || t.status === 'pending') && Number(t.assignee_id) === Number(meId)" :disabled="t._op" @click="handle(t)">
                 {{ t._op === 'accept' ? '接单中…' : '开始处理' }}
               </button>
-              <button class="btn btn-success btn-xs" v-if="t.status === 'ongoing' || t.status === 'processing'" :disabled="t._op" @click="finish(t)">
-                {{ t._op === 'complete' ? '提交中…' : '完成工单' }}
+              <button class="btn btn-success btn-xs" v-else-if="t.status === 'ongoing' || t.status === 'processing'" :disabled="t._op" @click="finish(t)">
+                {{ t._op === 'complete' ? '提交中…' : '完成 / 上报' }}
               </button>
-              <button class="btn btn-outline btn-xs" v-else @click="view(t)">查看</button>
+              <button class="btn btn-outline btn-xs" @click="view(t)">详情</button>
               <button class="btn btn-outline btn-xs guide-btn" :disabled="t._gop" @click="showGuideRecommend(t)" style="margin-left:4px;">📋 指导</button>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -141,50 +143,70 @@
     </section>
 
     <transition name="fade">
-      <div v-if="detailVisible" class="finish-mask" @click.self="closeDetail">
-        <div class="finish-dialog ticket-detail-dialog card">
-          <div class="finish-header ticket-detail-header">
+      <div v-if="detailVisible && detailTicket" class="finish-mask" @click.self="closeDetail">
+        <div class="finish-dialog detail-dialog card">
+          <div class="finish-header detail-header">
             <div class="fh-title">
               <span class="fh-icon">📋</span>
               <div>
-                <div class="fh-big">工单详情</div>
-                <div class="fh-small">工单号：<b class="mono">{{ detailTicket && (detailTicket.code || detailTicket.id) }}</b></div>
+                <div class="fh-big">工单详情 · {{ detailTicket.code }}</div>
+                <div class="fh-small">{{ detailTicket.title }}</div>
               </div>
             </div>
             <button class="kr-close" @click="closeDetail" type="button">✕</button>
           </div>
-          <div v-if="detailTicket" class="finish-body ticket-detail-body">
-            <div class="ticket-detail-grid">
-              <div class="ticket-detail-item">
-                <span>设备</span><b>{{ detailTicket.device_name || '未关联' }}</b>
-              </div>
-              <div class="ticket-detail-item">
-                <span>故障等级</span><b>{{ detailTicket.level_label }}</b>
-              </div>
-              <div class="ticket-detail-item">
-                <span>工单状态</span><b>{{ detailTicket.status_label }}</b>
-              </div>
-              <div class="ticket-detail-item">
-                <span>创建时间</span><b>{{ detailTicket.createdText }}</b>
+          <div class="finish-body detail-body">
+            <div class="detail-field detail-full">
+              <div class="detail-label">工单标题</div>
+              <div class="detail-value strong">{{ detailTicket.title || '—' }}</div>
+            </div>
+            <div class="detail-field">
+              <div class="detail-label">关联设备</div>
+              <div class="detail-value">{{ detailTicket.device_name || '—' }}</div>
+            </div>
+            <div class="detail-field">
+              <div class="detail-label">类别</div>
+              <div class="detail-value">{{ detailTicket.category || '—' }}</div>
+            </div>
+            <div class="detail-field">
+              <div class="detail-label">优先级</div>
+              <div class="detail-value">
+                <span class="level-tag" :class="'lv-' + detailTicket.level">{{ detailTicket.level_label }}</span>
               </div>
             </div>
-            <div class="ticket-detail-section">
-              <div class="ticket-detail-label">工单标题</div>
-              <div class="ticket-detail-content">{{ detailTicket.title || '—' }}</div>
+            <div class="detail-field">
+              <div class="detail-label">状态</div>
+              <div class="detail-value">
+                <span class="status-pill" :class="'st-' + detailTicket.status">{{ detailTicket.status_label }}</span>
+              </div>
             </div>
-            <div class="ticket-detail-section">
-              <div class="ticket-detail-label">问题描述</div>
-              <div class="ticket-detail-content">{{ detailTicket.problem || '—' }}</div>
+            <div class="detail-field">
+              <div class="detail-label">处理人</div>
+              <div class="detail-value">{{ detailTicket.assignee_name || '待分配' }}</div>
             </div>
-            <div v-if="detailTicket.solution" class="ticket-detail-section solution">
-              <div class="ticket-detail-label">解决方案</div>
-              <div class="ticket-detail-content">{{ detailTicket.solution }}</div>
+            <div class="detail-field">
+              <div class="detail-label">创建人</div>
+              <div class="detail-value">{{ detailTicket.submitter_name || '系统' }}</div>
+            </div>
+            <div class="detail-field detail-full">
+              <div class="detail-label">创建时间</div>
+              <div class="detail-value mono">{{ detailTicket.createdText }}</div>
+            </div>
+            <div class="detail-field detail-full">
+              <div class="detail-label">问题描述</div>
+              <div class="detail-value detail-text">{{ detailTicket.problem || '—' }}</div>
+            </div>
+            <div v-if="detailTicket.solution" class="detail-field detail-full">
+              <div class="detail-label">解决方案</div>
+              <div class="detail-value detail-text solution">{{ detailTicket.solution }}</div>
+            </div>
+            <div class="detail-field detail-full">
+              <div class="detail-label">备注</div>
+              <div class="detail-value detail-text remark">{{ detailTicket.remark || '—' }}</div>
             </div>
           </div>
-          <div class="kr-footer">
-            <div class="kr-actions">
-              <button class="btn btn-outline" @click="closeDetail" type="button">关闭</button>
-            </div>
+          <div class="detail-footer">
+            <button class="btn btn-outline" @click="closeDetail" type="button">关闭</button>
           </div>
         </div>
       </div>
@@ -354,7 +376,7 @@ const LEVEL_LABEL = { critical: '高（加急）', high: '高（加急）', mid:
 const LEVEL_CLS = { critical: 'high', high: 'high', mid: 'medium', low: 'low' }
 const STATUS_DISPLAY = {
   pending:    { label: '待派单', cls: 'pending' },
-  assigned:   { label: '待处理', cls: 'pending' },
+  assigned:   { label: '待确认', cls: 'pending' },
   processing: { label: '处理中', cls: 'ongoing' },
   ongoing:    { label: '处理中', cls: 'ongoing' },
   completed:  { label: '已完成', cls: 'done' },
@@ -409,8 +431,8 @@ function _mapTicket(t) {
   if (mappedStatus === 'done') {
     slaText = '已完成'
     slaPct = 100
-  } else if (mappedStatus === 'pending') {
-    slaText = '待处理'
+  } else if (mappedStatus === 'pending' || mappedStatus === 'assigned') {
+    slaText = mappedStatus === 'assigned' ? '等待确认' : '等待派单'
     slaPct = 0
   } else {
     slaText = '处理中'
@@ -421,6 +443,7 @@ function _mapTicket(t) {
     code: t.code || ('WO-' + String(t.id).padStart(6, '0')),
     title: t.title,
     device_name: t.device_name,
+    category: t.category || '—',
     location: '',
     problem: t.problem || t.title,
     level: LEVEL_CLS[level] || level,
@@ -435,7 +458,10 @@ function _mapTicket(t) {
     status_label: t.status_label || display.label,
     status_cls: display.cls,
     assignee_id: t.assignee_id,
+    assignee_name: t.assignee_name,
+    submitter_name: t.submitter_name,
     solution: t.solution || '',
+    remark: t.remark || '',
     _op: null
   }
 }
@@ -467,7 +493,7 @@ export default {
       finishTicket: null,
       detailVisible: false,
       detailTicket: null,
-      finishForm: { solution: '', parts: '', hours: '', contrib: false },
+      finishForm: { solution: '', parts: '', hours: '', contrib: true },
       finishSubmitting: false,
       finishErr: '',
       toast: '',
@@ -544,7 +570,7 @@ export default {
     countByStatus(k) {
       if (k === 'all') return this.allTickets.length
       if (k === 'pending') return this.allTickets.filter(t => t.status === 'pending').length
-      if (k === 'ongoing') return this.allTickets.filter(t => t.status === 'ongoing' || t.status === 'assigned').length
+      if (k === 'ongoing') return this.allTickets.filter(t => t.status === 'ongoing').length
       if (k === 'done')    return this.allTickets.filter(t => t.status === 'done').length
       return 0
     },
@@ -846,12 +872,15 @@ export default {
 
 .status-pill { display: inline-block; padding: 3px 11px; border-radius: 999px; font-size: 0.6875rem; font-weight: 600; }
 .st-pending { background: rgba(245, 158, 11, 0.12); color: var(--accent-orange); }
+.st-assigned { background: rgba(139,92,246,0.12); color: var(--accent-purple); }
 .st-ongoing { background: rgba(79, 214, 255, 0.12); color: var(--primary); }
 .st-done    { background: rgba(0, 255, 136, 0.1); color: var(--accent-green); }
 .st-overdue { background: rgba(255,71,87,0.12); color: var(--accent-red); }
 
 .btn-xs { padding: 4px 12px; font-size: 0.6875rem; margin-right: 4px; }
 .btn-xs:last-child { margin-right: 0; }
+.row-actions { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.row-actions .btn-xs { margin-right: 0; }
 .btn-primary {
   background: var(--primary); color: var(--bg-deep);
   border: 1px solid var(--primary); border-radius: var(--radius);
@@ -916,6 +945,49 @@ export default {
   padding: 18px 24px; display: flex; justify-content: space-between; align-items: flex-start;
   background: linear-gradient(135deg, rgba(16,185,129,0.08), transparent 60%);
   border-bottom: 1px solid var(--border-subtle);
+}
+.detail-dialog { max-width: 640px; }
+.detail-header {
+  background: linear-gradient(135deg, rgba(37,99,235,0.12), transparent 60%);
+}
+.finish-body.detail-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.detail-field {
+  min-width: 0;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.025);
+  border: 1px solid var(--border-subtle);
+}
+.detail-full { grid-column: 1 / -1; }
+.detail-label {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+.detail-value {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.detail-value.strong { font-weight: 600; }
+.detail-text {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(37,99,235,0.05);
+  white-space: pre-wrap;
+}
+.detail-text.solution { background: rgba(16,185,129,0.06); }
+.detail-text.remark { background: rgba(245,158,11,0.06); }
+.detail-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border-subtle);
 }
 .fh-title { display: flex; align-items: center; gap: 12px; }
 .fh-icon { font-size: 1.75rem; }

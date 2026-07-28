@@ -180,13 +180,14 @@
               </div>
             </div>
             <div class="col-status">
-              <span class="status-chip" :class="'st-' + o._statusKey">{{ statusText(o._statusKey) }}</span>
+              <span class="status-chip" :class="'st-' + o._statusKey">{{ o.status_label || statusText(o._statusKey) }}</span>
             </div>
             <div class="col-time mono" :class="{ overtime: o._isOvertime }">{{ o.createdText }}</div>
             <div class="col-action">
-              <button class="row-btn primary" :disabled="o._op" @click="handleOrder(o)">
-                {{ o.status === 'pending' ? '派单' : (o._op ? '处理中…' : '处置') }}
+              <button v-if="o.status === 'pending' || o.status === 'assigned'" class="row-btn primary" :disabled="o._op" @click="handleOrder(o)">
+                {{ o.assignee_id ? '改派' : '派单' }}
               </button>
+              <span v-else class="row-btn-placeholder" aria-hidden="true"></span>
               <button class="row-btn" @click="previewOrder(o)">详情</button>
               <button class="row-btn danger" @click="deleteOrder(o)">删除</button>
             </div>
@@ -245,7 +246,7 @@
     </section>
 
     <!-- 知识报告审核面板 -->
-    <section class="knowledge-panel" v-if="activeMainTab === 'knowledge'">
+    <section ref="knowledgePanel" class="knowledge-panel" v-if="activeMainTab === 'knowledge'">
       <div class="knowledge-layout">
         <!-- 报告列表 -->
         <div class="kr-list card">
@@ -321,10 +322,14 @@
           <h3>{{ dispatchMode === 'create' ? '📤 新建工单并派单' : '🎯 派单：' + (dispatchTicket && dispatchTicket.title) }}</h3>
           <button class="modal-close" @click="closeDispatch" type="button">✕</button>
         </div>
+        <div v-if="dispatchErr" class="dispatch-alert" role="alert" aria-live="assertive">
+          <span class="dispatch-alert-icon">✕</span>
+          <span>{{ dispatchErr }}</span>
+        </div>
         <div class="modal-body" style="padding: 20px 24px; display:flex; flex-direction:column; gap:14px;">
           <div v-if="dispatchMode === 'create'" class="kr-row">
             <label class="kr-label required">工单标题</label>
-            <input v-model="dispatchForm.title" class="input" placeholder="如：3#离心泵振动值持续偏高" />
+            <input v-model="dispatchForm.title" class="input" minlength="2" maxlength="255" placeholder="如：3#离心泵振动值持续偏高" />
           </div>
           <div v-if="dispatchMode === 'create'" class="kr-row kr-double">
             <div>
@@ -332,22 +337,27 @@
               <input v-model="dispatchForm.device_name" class="input" placeholder="如：离心泵 P-103" />
             </div>
             <div>
-              <label class="kr-label">优先级</label>
-              <select v-model="dispatchForm.level" class="input" style="cursor:pointer;">
-                <option value="low">低</option>
-                <option value="mid">中</option>
-                <option value="high">高</option>
+              <label class="kr-label required">类别</label>
+              <select v-model="dispatchForm.category" class="input" style="cursor:pointer;">
+                <option value="" disabled>请选择类别...</option>
+                <option value="机械">机械</option>
+                <option value="电气">电气</option>
+                <option value="安全">安全</option>
+                <option value="仪表">仪表</option>
+                <option value="液压">液压</option>
               </select>
             </div>
           </div>
           <div v-if="dispatchMode === 'create'" class="kr-row">
             <label class="kr-label required">问题描述</label>
-            <textarea v-model="dispatchForm.problem" class="input" rows="3" placeholder="描述故障现象、检测到的参数、初步判断..."></textarea>
+            <textarea v-model="dispatchForm.problem" class="input" rows="3" minlength="5" placeholder="描述故障现象、检测到的参数、初步判断（至少5个字符）..."></textarea>
           </div>
 
           <div class="kr-row kr-double">
             <div>
-              <label class="kr-label required">指派维修工</label>
+              <label class="kr-label" :class="{ required: dispatchMode !== 'create' }">
+                指派维修工<span v-if="dispatchMode === 'create'">（可选）</span>
+              </label>
               <select v-model="dispatchForm.assignee_id" class="input" style="cursor:pointer;">
                 <option :value="''" disabled>请选择维修工...</option>
                 <option v-for="u in workers" :key="u.id" :value="String(u.id)">
@@ -369,12 +379,28 @@
             <label class="kr-label">派单备注（可选）</label>
             <textarea v-model="dispatchForm.remark" class="input" rows="2" placeholder="如：优先处理，需在今日14:00前完成；现场联系王班长..."></textarea>
           </div>
-
-          <div v-if="dispatchErr" class="kr-err">{{ dispatchErr }}</div>
         </div>
         <div class="modal-foot" style="padding: 14px 24px; border-top:1px solid var(--border-subtle); display:flex; justify-content:flex-end; gap:10px;">
           <button class="btn btn-outline" @click="closeDispatch" type="button">取消</button>
-          <button class="btn btn-primary" @click="submitDispatch" :disabled="dispatchSubmitting">
+          <button
+            v-if="dispatchMode === 'create'"
+            class="btn btn-primary"
+            @click="submitDispatch('create')"
+            :disabled="dispatchSubmitting || !!dispatchForm.assignee_id"
+            :title="dispatchForm.assignee_id ? '已选择维修工，请使用创建并派单' : '创建待派单工单'"
+            type="button"
+          >
+            创建
+          </button>
+          <button
+            class="btn btn-primary"
+            :class="{ 'needs-assignee': dispatchMode === 'create' && !dispatchForm.assignee_id }"
+            :aria-disabled="dispatchMode === 'create' && !dispatchForm.assignee_id"
+            :title="dispatchMode === 'create' && !dispatchForm.assignee_id ? '请先选择维修工' : ''"
+            @click="submitDispatch('assign')"
+            :disabled="dispatchSubmitting"
+            type="button"
+          >
             {{ dispatchSubmitting ? '提交中…' : (dispatchMode === 'create' ? '创建并派单' : '确认派单') }}
           </button>
         </div>
@@ -399,6 +425,10 @@
               <div class="kr-field-value">{{ previewTicket.device_name || '—' }}</div>
             </div>
             <div class="kr-field">
+              <div class="kr-field-label">类别</div>
+              <div class="kr-field-value">{{ previewTicket.category || '—' }}</div>
+            </div>
+            <div class="kr-field">
               <div class="kr-field-label">优先级</div>
               <div class="kr-field-value">
                 <span class="pri-chip" :class="'pri-' + previewTicket._priorityKey">{{ priorityText(previewTicket._priorityKey) }}</span>
@@ -407,7 +437,7 @@
             <div class="kr-field">
               <div class="kr-field-label">状态</div>
               <div class="kr-field-value">
-                <span class="status-chip" :class="'st-' + previewTicket._statusKey">{{ statusText(previewTicket._statusKey) }}</span>
+                <span class="status-chip" :class="'st-' + previewTicket._statusKey">{{ previewTicket.status_label || statusText(previewTicket._statusKey) }}</span>
               </div>
             </div>
             <div class="kr-field">
@@ -427,10 +457,14 @@
             <div class="kr-field-label">问题描述</div>
             <div class="kr-field-value kr-text">{{ previewTicket.problem || '—' }}</div>
           </div>
-          <div class="kr-field" v-if="previewTicket.solution">
-            <div class="kr-field-label">解决方案</div>
-            <div class="kr-field-value kr-text solution">{{ previewTicket.solution }}</div>
-          </div>
+            <div class="kr-field" v-if="previewTicket.solution">
+              <div class="kr-field-label">解决方案</div>
+              <div class="kr-field-value kr-text solution">{{ previewTicket.solution }}</div>
+            </div>
+            <div class="kr-field">
+              <div class="kr-field-label">备注</div>
+              <div class="kr-field-value kr-text">{{ previewTicket.remark || '—' }}</div>
+            </div>
           <div class="kr-field" v-if="previewTicket._attachments && previewTicket._attachments.length">
             <div class="kr-field-label">附件（{{ previewTicket._attachments.length }}）</div>
             <div class="attach-list">
@@ -661,13 +695,17 @@ function _mapTicket(t) {
   if (level === 'critical') level = 'high'
   const status = (t.status || 'pending').toLowerCase()
   let statusKey = status
-  if (status === 'doing' || status === 'over') statusKey = 'ongoing'
+  if (status === 'doing') statusKey = 'ongoing'
+  if (status === 'assigned') statusKey = 'confirming'
+  if (status === 'over') statusKey = 'overdue'
   if (status === 'completed') statusKey = 'done'
   return {
     id: t.id,
     code: t.code || ('TK-' + t.id),
     title: t.title || '',
+    device_id: t.device_id,
     device_name: t.device_name,
+    category: t.category || '机械',
     level: level,
     level_label: t.level_label || '',
     _levelKey: level,
@@ -680,6 +718,7 @@ function _mapTicket(t) {
     submitter_name: t.submitter_name,
     problem: t.problem,
     solution: t.solution,
+    remark: t.remark,
     submit_time_ts: t.submit_time_ts,
     finish_time_ts: t.finish_time_ts,
     createdText: _fmtTsToText(t.submit_time_ts),
@@ -754,10 +793,11 @@ export default {
       dispatchOpen: false,
       dispatchMode: 'assign',
       dispatchTicket: null,
-      dispatchForm: { title: '', device_id: null, device_name: '', level: 'mid', problem: '', assignee_id: '', remark: '' },
+      dispatchForm: { title: '', device_id: null, device_name: '', category: '', level: 'mid', problem: '', assignee_id: '', remark: '' },
       _dispatchRouteKey: '',
       dispatchSubmitting: false,
       dispatchErr: '',
+      _handledDispatchRoute: '',
       previewOpen: false,
       previewTicket: null,
       activeKrTab: 'pending',
@@ -780,6 +820,7 @@ export default {
     },
     totalOrders() { return this.allTickets.length },
     pendingCount() { return this.allTickets.filter(t => t._statusKey === 'pending').length },
+    confirmingCount() { return this.allTickets.filter(t => t._statusKey === 'confirming').length },
     ongingCount() { return this.allTickets.filter(t => t._statusKey === 'ongoing').length },
     doneCount() { return this.allTickets.filter(t => t._statusKey === 'done').length },
     totalWorkers() { return this.workers.length },
@@ -799,13 +840,17 @@ export default {
     orderTabs() {
       const all = this.allTickets.length
       const pending = this.allTickets.filter(t => t._statusKey === 'pending').length
+      const confirming = this.allTickets.filter(t => t._statusKey === 'confirming').length
       const ongoing = this.allTickets.filter(t => t._statusKey === 'ongoing').length
       const done = this.allTickets.filter(t => t._statusKey === 'done').length
+      const overdue = this.allTickets.filter(t => t._statusKey === 'overdue').length
       return [
         { key: 'all', label: '全部', count: all },
         { key: 'pending', label: '待派单', count: pending },
+        { key: 'confirming', label: '待确认', count: confirming },
         { key: 'ongoing', label: '进行中', count: ongoing },
-        { key: 'done', label: '已完成', count: done }
+        { key: 'done', label: '已完成', count: done },
+        { key: 'overdue', label: '超时', count: overdue }
       ]
     },
     filteredOrders() {
@@ -929,14 +974,35 @@ export default {
     resolveRouteTab() {
       const q = this.$route && this.$route.query
       if (!q) return
+      if (q.tab === 'order') this.activeMainTab = 'order'
       if (q.tab === 'knowledge') this.activeMainTab = 'knowledge'
       if (q.tab === 'repair') {
         this.activeMainTab = 'order'
         this._openRouteDeviceDispatch(String(q.device || ''))
       }
+      const order = (q.order || '').toString()
+      if (order && ['all', 'pending', 'confirming', 'ongoing', 'done', 'overdue'].indexOf(order) >= 0) {
+        this.activeOrderTab = order
+      }
       const kr = (q.kr || '').toString()
       if (kr && ['all', 'pending', 'approved', 'synced', 'rejected'].indexOf(kr) >= 0) {
         this.activeKrTab = kr
+      }
+      if (!this._hydrating && q.action === 'create' && q.device) {
+        const routeKey = this.$route.fullPath
+        if (this._handledDispatchRoute !== routeKey) {
+          this._handledDispatchRoute = routeKey
+          const code = String(q.device || '').trim()
+          const name = String(q.device_name || '').trim()
+          this.openDispatch()
+          this.dispatchForm.device_id = Number(q.device_id) || null
+          this.dispatchForm.title = String(q.title || `${name || code}故障维修`).trim()
+          this.dispatchForm.device_name = [code, name].filter(Boolean).join(' ')
+          this.dispatchForm.category = String(q.category || '')
+          this.dispatchForm.problem = String(
+            q.problem || `${name || code}处于故障停机状态，请安排检查并维修`
+          ).trim()
+        }
       }
     },
     async _openRouteDeviceDispatch(deviceCode) {
@@ -1122,7 +1188,7 @@ export default {
       return ({ critical: '高', high: '高', mid: '中', low: '低' })[p] || '中'
     },
     statusText(s) {
-      return ({ pending: '待派单', ongoing: '进行中', done: '已完成', overdue: '超时' })[s] || s
+      return ({ pending: '待派单', confirming: '待确认', ongoing: '进行中', done: '已完成', overdue: '超时' })[s] || s
     },
     loadClass(v) {
       if (v >= 80) return 'lv-high'
@@ -1136,17 +1202,17 @@ export default {
       if (o) {
         this.dispatchMode = 'assign'
         this.dispatchTicket = o
-        this.dispatchForm = { title: o.title, device_id: o.device_id || null, device_name: o.device_name || '', level: o._levelKey || 'mid', problem: o.problem || '', assignee_id: o.assignee_id ? String(o.assignee_id) : '', remark: '' }
+        this.dispatchForm = { title: o.title, device_id: o.device_id || null, device_name: o.device_name || '', category: o.category || '机械', level: o._levelKey || 'mid', problem: o.problem || '', assignee_id: o.assignee_id ? String(o.assignee_id) : '', remark: '' }
       } else {
         this.dispatchMode = 'create'
         this.dispatchTicket = null
-        this.dispatchForm = { title: '', device_id: null, device_name: '', level: 'mid', problem: '', assignee_id: '', remark: '' }
+        this.dispatchForm = { title: '', device_id: null, device_name: '', category: '', level: 'mid', problem: '', assignee_id: '', remark: '' }
       }
       this.dispatchErr = ''
       this.dispatchOpen = true
     },
     handleOrder(o) {
-      if (o.status === 'pending' || !o.assignee_id) {
+      if (o.status === 'pending' || o.status === 'assigned' || !o.assignee_id) {
         this.openDispatch(o)
       } else {
         this.previewOrder(o)
@@ -1156,14 +1222,22 @@ export default {
       this.dispatchOpen = false
       this.dispatchTicket = null
     },
-    async submitDispatch() {
+    async submitDispatch(action = 'assign') {
       const f = this.dispatchForm
       this.dispatchErr = ''
-      if (this.dispatchMode === 'create') {
-        if (!f.title.trim()) { this.dispatchErr = '请填写工单标题'; return }
-        if (!f.problem.trim()) { this.dispatchErr = '请填写问题描述'; return }
+      if (this.dispatchMode === 'create' && action === 'create' && f.assignee_id) {
+        this.setDispatchError('已选择维修工，请点击“创建并派单”')
+        return
       }
-      if (!f.assignee_id) { this.dispatchErr = '请选择要指派的维修工'; return }
+      if (this.dispatchMode === 'create') {
+        if (!f.title.trim()) { this.setDispatchError('请填写工单标题'); return }
+        if (f.title.trim().length < 2) { this.setDispatchError('工单标题至少需要2个字符'); return }
+        if (!f.category) { this.setDispatchError('请选择工单类别'); return }
+        if (!f.problem.trim()) { this.setDispatchError('请填写问题描述'); return }
+        if (f.problem.trim().length < 5) { this.setDispatchError('问题描述不少于5字'); return }
+      }
+      const shouldAssign = this.dispatchMode !== 'create' || action === 'assign'
+      if (shouldAssign && !f.assignee_id) { this.setDispatchError('请选择要指派的维修工'); return }
       this.dispatchSubmitting = true
       try {
         if (this.dispatchMode === 'create') {
@@ -1171,25 +1245,28 @@ export default {
             title: f.title.trim(),
             device_id: f.device_id || null,
             device_name: f.device_name.trim(),
+            category: f.category,
             level: f.level,
             problem: f.problem.trim(),
-            assignee_id: Number(f.assignee_id)
+            assignee_id: shouldAssign ? Number(f.assignee_id) : null,
+            remark: f.remark.trim()
           }
           await createTicketApi(payload)
-          this.showToast('✓ 工单创建并派单成功', true)
+          this.showToast(shouldAssign ? '✓ 工单创建并派单成功，等待员工确认' : '✓ 工单创建成功，等待派单', true)
         } else {
           const tid = this.dispatchTicket && this.dispatchTicket.id
           const saved = this._optimisticTicketPatch(tid, { _op: 'assign' })
           try {
             await assignTicketApi(tid, Number(f.assignee_id), f.remark || '', f.level)
             this._optimisticTicketPatch(tid, {
-              status: 'doing',
-              _statusKey: 'ongoing',
+              status: 'assigned',
+              status_label: '待确认',
+              _statusKey: 'confirming',
               assignee_id: Number(f.assignee_id),
               assignee_name: this.workers.find(w => Number(w.id) === Number(f.assignee_id))?.fullname || '',
               _op: null
             })
-            this.showToast('✓ 派单成功', true)
+            this.showToast('✓ 派单成功，等待员工确认', true)
           } catch (e) {
             if (saved) this._optimisticTicketPatch(tid, { status: saved.status, _statusKey: saved._statusKey, assignee_id: saved.assignee_id, assignee_name: saved.assignee_name, _op: null })
             throw e
@@ -1205,6 +1282,10 @@ export default {
       } finally {
         this.dispatchSubmitting = false
       }
+    },
+    setDispatchError(message) {
+      this.dispatchErr = message
+      _toast(message, 'error')
     },
     async previewOrder(o) {
       this.previewTicket = o
@@ -1228,9 +1309,16 @@ export default {
     goToReviewPending() {
       this.activeMainTab = 'knowledge'
       this.activeKrTab = 'pending'
+      this.selectedReport = null
+      this.$nextTick(() => {
+        const panel = this.$refs.knowledgePanel
+        if (panel && typeof panel.scrollIntoView === 'function') {
+          panel.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      })
       try {
         const cur = (this.$route && this.$route.query) || {}
-        if (cur.tab !== 'knowledge' || cur.kr !== 'pending') {
+        if (cur.tab !== 'knowledge' || cur.kr !== 'pending' || cur.rid) {
           this.$router.replace({ path: '/admin', query: { tab: 'knowledge', kr: 'pending' } })
         }
       } catch (_) {}
@@ -1461,19 +1549,27 @@ export default {
   font-size: 0.6875rem; font-weight: 600;
 }
 .status-chip.st-pending { color: var(--accent-orange); background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.22); }
+.status-chip.st-confirming { color: var(--accent-purple); background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.28); }
 .status-chip.st-ongoing { color: var(--primary);       background: var(--primary-subtle); border: 1px solid var(--border-active); }
 .status-chip.st-done    { color: var(--accent-green);   background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.18); }
 .status-chip.st-overdue { color: var(--accent-red);     background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); }
 
 .col-time.overtime { color: var(--accent-red); font-weight: 600; }
-.col-action { display: flex; gap: 6px; }
+.col-action {
+  display: grid;
+  grid-template-columns: repeat(3, 42px);
+  gap: 6px;
+  justify-content: end;
+}
+.order-head .col-action { display: block; text-align: center; }
 .row-btn {
-  padding: 4px 10px; font-size: 0.75rem;
+  width: 42px; min-height: 30px; padding: 4px 6px; font-size: 0.75rem;
   background: transparent; color: var(--text-secondary);
   border: 1px solid var(--border-subtle); border-radius: var(--radius);
-  cursor: pointer; font-family: inherit;
+  cursor: pointer; font-family: inherit; white-space: nowrap;
   transition: all var(--duration) var(--ease);
 }
+.row-btn-placeholder { width: 42px; min-height: 30px; }
 .row-btn:hover { border-color: var(--primary-dim); color: var(--text-primary); }
 .row-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .row-btn.primary {
@@ -1547,6 +1643,32 @@ export default {
   background: linear-gradient(135deg, var(--primary-subtle), transparent);
 }
 .modal-head h3 { margin: 0; font-size: 1rem; color: var(--text-primary); font-weight: 600; }
+.dispatch-alert {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 71, 87, 0.75);
+  border-radius: 8px;
+  background: rgba(255, 71, 87, 0.1);
+  color: #ff838c;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.dispatch-alert-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-red);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
 .modal-close {
   width: 28px; height: 28px; border-radius: 50%;
   background: transparent; color: var(--text-secondary); border: 1px solid transparent;
@@ -1886,6 +2008,14 @@ export default {
   white-space: nowrap;
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+.btn.needs-assignee {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-primary.needs-assignee:hover {
+  transform: none;
+  box-shadow: none;
+}
 .btn-sm { padding: 6px 12px; font-size: 0.75rem; border-radius: 6px; }
 .btn-outline {
   background: transparent; color: var(--text-secondary);
@@ -2052,7 +2182,7 @@ export default {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .quick-grid { grid-template-columns: repeat(2, 1fr); }
   .order-row { grid-template-columns: 110px 2fr 60px 90px 80px 90px; }
-  .col-action { grid-column: 1 / -1; justify-content: flex-end; display: flex; }
+  .col-action { grid-column: 1 / -1; justify-content: end; }
 }
 @media (max-width: 600px) {
   .main-tab { flex-direction: column; gap: 4px; padding: 10px; }
