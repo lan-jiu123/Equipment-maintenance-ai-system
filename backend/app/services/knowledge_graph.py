@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from pathlib import Path
 from typing import Dict, List, Any
 
@@ -395,17 +396,24 @@ def traverse_related(
     nodes = sub.get("nodes", [])
     links = sub.get("links", [])
 
-    # 1. 找到匹配节点（模糊匹配：搜索文本出现在节点名中）
-    search_lower = search_text.lower()
+    # 1. 找到匹配节点（模糊匹配：忽略空格、大小写、特殊字符）
+    def _normalize(s: str) -> str:
+        return re.sub(r"[\s\-_\.]+", "", s).lower()
+
+    search_norm = _normalize(search_text)
     matching_nodes = []
     for n in nodes:
         name = str(n.get("name", ""))
-        if search_lower in name.lower():
+        # 精确子串匹配
+        if search_text.lower() in name.lower():
+            matching_nodes.append(n)
+        # 模糊匹配：忽略空格和特殊字符
+        elif search_norm and len(search_norm) >= 3 and _normalize(name) and search_norm in _normalize(name):
             matching_nodes.append(n)
 
     if not matching_nodes:
         # 退一步：按 search_text 拆词匹配（更宽松）
-        tokens = [t for t in search_lower.split() if len(t) >= 2]
+        tokens = [t for t in re.split(r"[\s\-_\.]+", search_text.lower()) if len(t) >= 2]
         for n in nodes:
             name_lower = str(n.get("name", "")).lower()
             for token in tokens:
