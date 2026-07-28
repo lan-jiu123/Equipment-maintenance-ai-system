@@ -102,9 +102,45 @@
           </div>
         </div>
 
+        <!-- 知识贡献排行榜（所有用户可见） -->
+        <div class="card main-block leaderboard-block" v-if="leaderboardData">
+          <div class="block-head">
+            <h3>🏆 知识贡献排行榜</h3>
+            <span class="block-hint">审核通过的报告×10 + 入库案例×20 = 总积分</span>
+          </div>
+          <div class="leaderboard-my-rank" v-if="leaderboardData.my_rank">
+            <div class="lrank-left">
+              <span class="lrank-badge">#{{ leaderboardData.my_rank.rank }}</span>
+              <div class="lrank-info">
+                <div class="lrank-name">{{ leaderboardData.my_rank.name }}</div>
+                <div class="lrank-title">{{ leaderboardData.my_rank.title }}</div>
+              </div>
+            </div>
+            <div class="lrank-right">
+              <span class="lrank-score">{{ leaderboardData.my_rank.total_score }} 分</span>
+              <span class="lrank-detail">报告 {{ leaderboardData.my_rank.reports_approved }} · 案例 {{ leaderboardData.my_rank.cases_contributed }}</span>
+            </div>
+          </div>
+          <div class="leaderboard-list">
+            <div v-for="(entry, ei) in leaderboardData.ranking.slice(0, 8)" :key="ei" class="lb-row" :class="{ 'is-me': entry.is_me }">
+              <span class="lb-rank">
+                <span v-if="entry.rank === 1" class="medal">🥇</span>
+                <span v-else-if="entry.rank === 2" class="medal">🥈</span>
+                <span v-else-if="entry.rank === 3" class="medal">🥉</span>
+                <span v-else class="rank-num">{{ entry.rank }}</span>
+              </span>
+              <span class="lb-name">{{ entry.name }}</span>
+              <span class="lb-title-tag" v-if="entry.title">{{ entry.title.replace(/^[^\s]+\s/, '') }}</span>
+              <span class="lb-score">{{ entry.total_score }} 分</span>
+              <span class="lb-detail">{{ entry.reports_approved }} 报告 · {{ entry.cases_contributed }} 案例</span>
+            </div>
+          </div>
+        </div>
+
         <div class="card main-block contrib-block" v-if="isWorker">
           <div class="block-head">
             <h3>📚 我的知识贡献</h3>
+            <span class="block-hint">分享您的经验，为团队增添智慧</span>
           </div>
           <div class="contrib-stats">
             <div class="contrib-stat-item">
@@ -490,6 +526,7 @@ export default {
       draftAvatar: '',
       uploadErr: '',
       reportVisible: false,
+      leaderboardData: null,
       kStats: { total: 0, pending: 0, approved: 0, rejected: 0 },
       myReports: [],
       guideStats: { total: 0, completed: 0, inProgress: 0, abandoned: 0 },
@@ -550,6 +587,7 @@ export default {
     window.addEventListener('equipai-avatar-changed', this.refreshAvatar)
     window.addEventListener('equipai-knowledge-changed', this.refreshKnowledge)
     await this.refreshKnowledge({ initial: true })
+    this.fetchLeaderboard()
   },
   beforeUnmount() {
     window.removeEventListener('equipai-avatar-changed', this.refreshAvatar)
@@ -558,6 +596,18 @@ export default {
   methods: {
     refreshAvatar() {
       this.avatarSrc = resolveAvatarSrc(getAvatar())
+    },
+    async fetchLeaderboard() {
+      try {
+        const token = localStorage.getItem('equipai_token') || ''
+        const res = await fetch('/api/leaderboard/contributions', {
+          headers: { 'Authorization': 'Bearer ' + token }
+        })
+        const data = await res.json()
+        if (data && data.code === 200) {
+          this.leaderboardData = data.data
+        }
+      } catch (_e) {}
     },
     async refreshKnowledge({ initial = false, force = false } = {}) {
       // 知识贡献卡片仅对一线检修员显示，管理员跳过
@@ -1521,5 +1571,132 @@ export default {
   .form-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* 知识贡献排行榜 */
+.leaderboard-block .block-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.leaderboard-my-rank {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(255,215,0,0.08), rgba(255,165,2,0.06));
+  border: 1px solid rgba(255,215,0,0.2);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+}
+.lrank-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lrank-badge {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.875rem;
+  border-radius: 50%;
+}
+.lrank-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lrank-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.lrank-title {
+  font-size: 0.6875rem;
+  color: var(--accent-orange);
+  font-weight: 500;
+}
+.lrank-right {
+  text-align: right;
+}
+.lrank-score {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+.lrank-detail {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.leaderboard-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lb-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: background 0.2s;
+  font-size: 0.8125rem;
+}
+.lb-row:hover {
+  background: var(--bg-elevated);
+}
+.lb-row.is-me {
+  background: var(--primary-subtle);
+  border: 1px solid var(--border-active);
+}
+.lb-rank {
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.medal {
+  font-size: 1.125rem;
+}
+.rank-num {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+.lb-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lb-title-tag {
+  font-size: 0.625rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255,165,2,0.12);
+  color: var(--accent-orange);
+  white-space: nowrap;
+}
+.lb-score {
+  font-weight: 700;
+  color: var(--primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+.lb-detail {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 </style>

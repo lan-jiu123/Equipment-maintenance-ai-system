@@ -281,7 +281,7 @@
         <div class="modal-body">
           <div v-if="guideModalLoading" class="guide-loading">正在匹配最合适的作业指导...</div>
           <div v-else-if="guideModalError" class="guide-error">{{ guideModalError }}</div>
-          <div v-else-if="guideModalItems.length === 0" class="guide-empty">
+          <div v-else-if="guideModalItems.length === 0 && !guideModalDynamic" class="guide-empty">
             <div class="guide-empty-icon">📭</div>
             <div class="guide-empty-text">暂未找到匹配的作业指导</div>
             <div class="guide-empty-desc">可前往<a href="/guide" class="guide-link">作业指导库</a>浏览全部规程</div>
@@ -353,6 +353,38 @@
               <button class="rec-view-btn" @click="goGuideDetail(item.guide.id)">📄 查看完整指导详情 →</button>
             </div>
           </div>
+
+          <!-- AI 动态生成流程（无匹配时的自适应方案） -->
+          <div v-if="guideModalDynamic" class="dynamic-guide-card card">
+            <div class="dynamic-guide-header">
+              <span class="dynamic-guide-icon">✨</span>
+              <div>
+                <div class="dynamic-guide-title">AI 动态生成检修流程</div>
+                <div class="dynamic-guide-note">{{ guideModalDynamicNote }}</div>
+              </div>
+            </div>
+            <div class="dynamic-guide-body">
+              <div class="dg-title">{{ guideModalDynamic.title }}</div>
+              <div v-if="guideModalDynamic.risk_note" class="dg-risk">⚠️ {{ guideModalDynamic.risk_note }}</div>
+              <div v-if="guideModalDynamic.required_tools && guideModalDynamic.required_tools.length" class="dg-tools">
+                <span class="dg-label">🔧 所需工具：</span>
+                <span v-for="(tool, ti) in guideModalDynamic.required_tools" :key="ti" class="dg-tool-chip">{{ tool }}</span>
+              </div>
+              <div v-if="guideModalDynamic.estimated_duration_min" class="dg-duration">
+                ⏱ 预计耗时：{{ guideModalDynamic.estimated_duration_min }} 分钟
+              </div>
+              <div class="dg-steps">
+                <div v-for="(step, si) in guideModalDynamic.steps" :key="si" class="dg-step">
+                  <span class="dg-step-num">{{ step.step }}</span>
+                  <div class="dg-step-body">
+                    <div class="dg-step-content">{{ step.content }}</div>
+                    <div v-if="step.tip" class="dg-step-tip">💡 {{ step.tip }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="dg-footer">⚠️ 本流程由 AI 根据故障描述自动生成，执行前请现场核实安全条件</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -375,8 +407,8 @@ const LEVEL_ORDER = { critical: 0, high: 0, mid: 1, low: 2 }
 const LEVEL_LABEL = { critical: '高（加急）', high: '高（加急）', mid: '中', low: '低' }
 const LEVEL_CLS = { critical: 'high', high: 'high', mid: 'medium', low: 'low' }
 const STATUS_DISPLAY = {
-  pending:    { label: '待派单', cls: 'pending' },
-  assigned:   { label: '待确认', cls: 'pending' },
+  pending:    { label: '待处理', cls: 'pending' },
+  assigned:   { label: '待处理', cls: 'pending' },
   processing: { label: '处理中', cls: 'ongoing' },
   ongoing:    { label: '处理中', cls: 'ongoing' },
   completed:  { label: '已完成', cls: 'done' },
@@ -432,7 +464,7 @@ function _mapTicket(t) {
     slaText = '已完成'
     slaPct = 100
   } else if (mappedStatus === 'pending' || mappedStatus === 'assigned') {
-    slaText = mappedStatus === 'assigned' ? '等待确认' : '等待派单'
+    slaText = '待处理'
     slaPct = 0
   } else {
     slaText = '处理中'
@@ -501,7 +533,9 @@ export default {
       guideModalLoading: false,
       guideModalError: '',
       guideModalTicket: null,
-      guideModalItems: []
+      guideModalItems: [],
+      guideModalDynamic: null,
+      guideModalDynamicNote: '',
     }
   },
   computed: {
@@ -569,7 +603,7 @@ export default {
   methods: {
     countByStatus(k) {
       if (k === 'all') return this.allTickets.length
-      if (k === 'pending') return this.allTickets.filter(t => t.status === 'pending').length
+      if (k === 'pending') return this.allTickets.filter(t => t.status === 'pending' || t.status === 'assigned').length
       if (k === 'ongoing') return this.allTickets.filter(t => t.status === 'ongoing').length
       if (k === 'done')    return this.allTickets.filter(t => t.status === 'done').length
       return 0
@@ -714,9 +748,15 @@ export default {
       this.guideModalLoading = true
       this.guideModalError = ''
       this.guideModalItems = []
+      this.guideModalDynamic = null
+      this.guideModalDynamicNote = ''
       try {
         const res = await recommendGuidesForTicketApi(this.guideModalTicket.id)
         this.guideModalItems = (res && res.recommended) || []
+        if (res && res.dynamic_guide) {
+          this.guideModalDynamic = res.dynamic_guide
+          this.guideModalDynamicNote = res.dynamic_guide_note || ''
+        }
       } catch (e) {
         this.guideModalError = '推荐加载失败: ' + (e.message || '请重试')
       } finally {
@@ -1203,6 +1243,41 @@ export default {
 .rec-stop-warn { margin-top: 8px; padding: 6px 10px; background: rgba(255,71,87,0.06); border-radius: 4px; font-size: 0.6875rem; color: var(--accent-red); line-height: 1.5; }
 .rec-view-btn { display: block; width: 100%; margin-top: 8px; padding: 8px; text-align: center; font-size: 0.75rem; border-radius: var(--radius); background: var(--primary-subtle); color: var(--primary); border: 1px solid transparent; cursor: pointer; font-family: inherit; transition: all var(--duration) var(--ease); }
 .rec-view-btn:hover { background: rgba(37,99,235,0.12); border-color: var(--primary-dim); }
+
+/* AI 动态生成流程卡片 */
+.dynamic-guide-card {
+  margin-top: 16px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(139,92,246,0.3);
+  background: linear-gradient(135deg, rgba(139,92,246,0.05), rgba(37,99,235,0.03));
+}
+.dynamic-guide-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(139,92,246,0.08);
+  border-bottom: 1px solid rgba(139,92,246,0.15);
+}
+.dynamic-guide-icon { font-size: 1.25rem; }
+.dynamic-guide-title { font-size: 0.875rem; font-weight: 700; color: var(--text-primary); }
+.dynamic-guide-note { font-size: 0.6875rem; color: var(--text-muted); margin-top: 2px; }
+.dynamic-guide-body { padding: 14px 16px; }
+.dg-title { font-size: 1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 10px; }
+.dg-risk { padding: 6px 10px; background: rgba(255,165,2,0.1); border-radius: 6px; font-size: 0.8125rem; color: var(--accent-orange); margin-bottom: 10px; }
+.dg-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; font-size: 0.8125rem; }
+.dg-label { color: var(--text-secondary); font-weight: 500; }
+.dg-tool-chip { padding: 2px 8px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: 4px; font-size: 0.75rem; color: var(--text-secondary); }
+.dg-duration { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 12px; }
+.dg-steps { display: flex; flex-direction: column; gap: 8px; }
+.dg-step { display: flex; gap: 10px; }
+.dg-step-num { width: 24px; height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--primary); color: #fff; font-size: 0.75rem; font-weight: 700; border-radius: 50%; }
+.dg-step-body { flex: 1; min-width: 0; }
+.dg-step-content { font-size: 0.8125rem; color: var(--text-primary); line-height: 1.6; }
+.dg-step-tip { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+.dg-footer { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-subtle); font-size: 0.6875rem; color: var(--text-muted); text-align: center; }
+
 .modal-head-actions { display: flex; align-items: center; gap: 6px; }
 .modal-refresh-btn {
   width: 28px; height: 28px; border-radius: 50%;

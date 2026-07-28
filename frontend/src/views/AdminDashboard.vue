@@ -92,7 +92,7 @@
           <span class="quick-icon">📝</span>
           <span class="quick-body">
             <span class="quick-row">
-              <span class="quick-label">知识报告审核</span>
+              <span class="quick-label">报告/指导审核</span>
               <span class="quick-cta">进入审核 →</span>
             </span>
             <span class="quick-desc">审核员工提交的实践方案，入库知识库</span>
@@ -245,7 +245,7 @@
       </div>
     </section>
 
-    <!-- 知识报告审核面板 -->
+    <!-- 报告/指导审核面板 -->
     <section ref="knowledgePanel" class="knowledge-panel" v-if="activeMainTab === 'knowledge'">
       <div class="knowledge-layout">
         <!-- 报告列表 -->
@@ -340,6 +340,7 @@
               <label class="kr-label required">类别</label>
               <select v-model="dispatchForm.category" class="input" style="cursor:pointer;">
                 <option value="" disabled>请选择类别...</option>
+                <option value="综合">综合</option>
                 <option value="机械">机械</option>
                 <option value="电气">电气</option>
                 <option value="安全">安全</option>
@@ -500,20 +501,48 @@
         <div class="modal-body report-modal-body">
           <div class="kr-detail-body">
             <div class="kr-field">
+              <div class="kr-field-label">设备类型</div>
+              <div class="kr-field-value"><span class="kli-type">{{ selectedReport.tag || '机械' }}</span></div>
+            </div>
+            <div class="kr-field">
               <div class="kr-field-label">适用设备</div>
               <div class="kr-field-value mono">{{ selectedReport.device || '—' }}</div>
+            </div>
+            <div class="kr-field" v-if="selectedReport.ticket_id">
+              <div class="kr-field-label">关联工单</div>
+              <div class="kr-field-value mono">{{ selectedReport.ticket_id }}</div>
+            </div>
+            <div class="kr-field" v-if="selectedReport.level">
+              <div class="kr-field-label">故障等级</div>
+              <div class="kr-field-value"><span class="level-indicator" :class="'lvl-' + selectedReport.level">{{ { low: '提示', mid: '注意', high: '严重' }[selectedReport.level] || selectedReport.level }}</span></div>
             </div>
             <div class="kr-field">
               <div class="kr-field-label">问题描述</div>
               <div class="kr-field-value kr-text">{{ selectedReport.question || '—' }}</div>
             </div>
-            <div class="kr-field">
-              <div class="kr-field-label">解决方案</div>
-              <div class="kr-field-value kr-text solution">{{ selectedReport.solution || '—' }}</div>
+            <div class="kr-field" v-if="selectedReport.fault">
+              <div class="kr-field-label">故障描述</div>
+              <div class="kr-field-value kr-text">{{ selectedReport.fault }}</div>
             </div>
             <div class="kr-field" v-if="selectedReport.cause">
               <div class="kr-field-label">根因分析</div>
               <div class="kr-field-value kr-text">{{ selectedReport.cause }}</div>
+            </div>
+            <div class="kr-field" v-if="selectedReport.repair_process">
+              <div class="kr-field-label">维修过程</div>
+              <div class="kr-field-value kr-text">{{ selectedReport.repair_process }}</div>
+            </div>
+            <div class="kr-field" v-if="selectedReport.technical_measures">
+              <div class="kr-field-label">使用工具/技术措施</div>
+              <div class="kr-field-value kr-text">{{ selectedReport.technical_measures }}</div>
+            </div>
+            <div class="kr-field" v-if="selectedReport.repair_result">
+              <div class="kr-field-label">维修结果</div>
+              <div class="kr-field-value kr-text">{{ selectedReport.repair_result }}</div>
+            </div>
+            <div class="kr-field">
+              <div class="kr-field-label">解决方案</div>
+              <div class="kr-field-value kr-text solution">{{ selectedReport.solution || '—' }}</div>
             </div>
             <div class="kr-field">
               <div class="kr-field-label">建议入库</div>
@@ -736,9 +765,16 @@ function _mapReport(r) {
     type: (r.type || 'case').toLowerCase(),
     source: r.source || 'manual',
     level: r.level,
+    tag: r.tag,
     question: r.question,
+    fault: r.fault,
     cause: r.cause,
     solution: r.solution,
+    repair_process: r.repair_process,
+    technical_measures: r.technical_measures,
+    repair_result: r.repair_result,
+    summary: r.summary,
+    ticket_id: r.ticket_id,
     status: r.status,
     status_label: r.status_label,
     submitter_id: r.submitter_id,
@@ -747,7 +783,8 @@ function _mapReport(r) {
     reviewer_name: r.reviewer_name,
     review_remark: r.review_remark,
     review_time_ts: r.review_time_ts,
-    sync_time_ts: r.sync_time_ts
+    sync_time_ts: r.sync_time_ts,
+    attachments: r.attachments
   }
 }
 
@@ -847,7 +884,7 @@ export default {
       return [
         { key: 'all', label: '全部', count: all },
         { key: 'pending', label: '待派单', count: pending },
-        { key: 'confirming', label: '待确认', count: confirming },
+        { key: 'confirming', label: '待处理', count: confirming },
         { key: 'ongoing', label: '进行中', count: ongoing },
         { key: 'done', label: '已完成', count: done },
         { key: 'overdue', label: '超时', count: overdue }
@@ -902,7 +939,7 @@ export default {
       return [
         { key: 'order', label: '工单列表', icon: '📋', count: this.totalOrders, badgeCls: '' },
         { key: 'team', label: '团队负载', icon: '👥', count: 0, badgeCls: '' },
-        { key: 'knowledge', label: '知识报告审核', icon: '📝', count: this.pendingReports, badgeCls: 'orange' }
+        { key: 'knowledge', label: '报告/指导审核', icon: '📝', count: this.pendingReports, badgeCls: 'orange' }
       ]
     },
     krTabs() {
@@ -1188,7 +1225,7 @@ export default {
       return ({ critical: '高', high: '高', mid: '中', low: '低' })[p] || '中'
     },
     statusText(s) {
-      return ({ pending: '待派单', confirming: '待确认', ongoing: '进行中', done: '已完成', overdue: '超时' })[s] || s
+      return ({ pending: '待派单', confirming: '待处理', ongoing: '进行中', done: '已完成', overdue: '超时' })[s] || s
     },
     loadClass(v) {
       if (v >= 80) return 'lv-high'
@@ -1260,7 +1297,7 @@ export default {
             await assignTicketApi(tid, Number(f.assignee_id), f.remark || '', f.level)
             this._optimisticTicketPatch(tid, {
               status: 'assigned',
-              status_label: '待确认',
+              status_label: '待处理',
               _statusKey: 'confirming',
               assignee_id: Number(f.assignee_id),
               assignee_name: this.workers.find(w => Number(w.id) === Number(f.assignee_id))?.fullname || '',
@@ -1749,7 +1786,7 @@ export default {
   border: 1px solid rgba(255,165,2,0.3);
 }
 
-/* === 知识报告审核面板 === */
+/* === 报告/指导审核面板 === */
 .knowledge-panel { display: flex; flex-direction: column; gap: 20px; }
 
 .knowledge-layout {
@@ -1825,6 +1862,14 @@ export default {
 .kli-type.type-case  { color: var(--accent-green);  background: rgba(16,185,129,0.1); border-color: rgba(16,185,129,0.3); }
 .kli-type.type-guide { color: var(--accent-cyan);   background: rgba(6,182,212,0.1);  border-color: rgba(6,182,212,0.3); }
 .kli-time { color: var(--text-muted); font-size: 0.6875rem; }
+
+.level-indicator {
+  display: inline-block; padding: 3px 10px; border-radius: 999px;
+  font-size: 0.75rem; font-weight: 600;
+}
+.level-indicator.lvl-low  { color: var(--accent-green);  background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); }
+.level-indicator.lvl-mid  { color: var(--accent-orange); background: rgba(255,165,0,0.1);  border: 1px solid rgba(255,165,0,0.2); }
+.level-indicator.lvl-high { color: var(--accent-red);    background: rgba(239,68,68,0.1);  border: 1px solid rgba(239,68,68,0.2); }
 
 .kr-empty {
   padding: 60px 20px;

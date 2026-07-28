@@ -73,6 +73,140 @@
               <div v-if="msg.content">{{ msg.content }}</div>
             </div>
             <!-- AI 消息：结构化渲染 + 参考来源 -->
+            <!-- 图片诊断结构化卡片 -->
+            <div v-else-if="msg.vision" class="vision-card">
+              <!-- 诊断头部：置信度仪表 -->
+              <div class="vision-header">
+                <div class="vision-header-left">
+                  <span class="vision-icon">🔬</span>
+                  <div>
+                    <div class="vision-title">AI 图片诊断报告</div>
+                    <div class="vision-subtitle">{{ msg.vision.equipment_category || '设备图片' }} · {{ msg.vision.fault_domain || '通用' }}领域</div>
+                  </div>
+                </div>
+                <div class="confidence-meter" :class="confidenceLevel(msg.vision.confidence)">
+                  <div class="confidence-ring">
+                    <svg viewBox="0 0 36 36" class="confidence-svg">
+                      <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--border-subtle)" stroke-width="3"/>
+                      <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" :stroke="confidenceColor(msg.vision.confidence)" stroke-width="3" stroke-dasharray="100" :stroke-dashoffset="100 - (msg.vision.confidence || 0) * 100" stroke-linecap="round"/>
+                    </svg>
+                    <span class="confidence-text">{{ Math.round((msg.vision.confidence || 0) * 100) }}%</span>
+                  </div>
+                  <div class="confidence-labels">
+                    <span class="confidence-label">置信度</span>
+                    <span class="confidence-badge" :class="confidenceLevel(msg.vision.confidence)">
+                      {{ confidenceLevelLabel(msg.vision.confidence) }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 设备/部件识别 -->
+              <div class="vision-section">
+                <div class="vision-section-title">🛠 设备部件识别</div>
+                <div class="vision-ident-grid">
+                  <div v-if="msg.vision.equipment" class="ident-item">
+                    <span class="ident-label">设备型号</span>
+                    <span class="ident-value">{{ msg.vision.equipment }}</span>
+                  </div>
+                  <div v-if="msg.vision.equipment_category" class="ident-item">
+                    <span class="ident-label">设备类别</span>
+                    <span class="ident-value">{{ msg.vision.equipment_category }}</span>
+                  </div>
+                  <div v-if="msg.vision.component_type" class="ident-item">
+                    <span class="ident-label">部件类型</span>
+                    <span class="ident-value">{{ msg.vision.component_type }}</span>
+                  </div>
+                  <div v-if="msg.vision.component" class="ident-item">
+                    <span class="ident-label">具体部件</span>
+                    <span class="ident-value ident-highlight">{{ msg.vision.component }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 可见事实标签 -->
+              <div v-if="msg.vision.visible_facts && msg.vision.visible_facts.length" class="vision-section">
+                <div class="vision-section-title">🔍 可见事实</div>
+                <div class="tag-cloud">
+                  <span v-for="(fact, fi) in msg.vision.visible_facts" :key="fi" class="tag-item fact-tag">{{ fact }}</span>
+                </div>
+              </div>
+
+              <!-- OCR 文字 -->
+              <div v-if="msg.vision.ocr_text && msg.vision.ocr_text.length" class="vision-section">
+                <div class="vision-section-title">📝 识别文字</div>
+                <div class="ocr-display">{{ msg.vision.ocr_text.join(' · ') }}</div>
+              </div>
+
+              <!-- 疑似故障 -->
+              <div v-if="msg.vision.suspected_faults && msg.vision.suspected_faults.length" class="vision-section">
+                <div class="vision-section-title">⚠️ 疑似故障</div>
+                <div class="tag-cloud">
+                  <span v-for="(fault, fi) in msg.vision.suspected_faults" :key="fi" class="tag-item fault-tag">{{ fault }}</span>
+                </div>
+              </div>
+
+              <!-- 检索关键词 -->
+              <div v-if="msg.vision.search_keywords && msg.vision.search_keywords.length" class="vision-section">
+                <div class="vision-section-title">🔎 检索关键词</div>
+                <div class="tag-cloud">
+                  <span v-for="(kw, ki) in msg.vision.search_keywords" :key="ki" class="tag-item kw-tag">{{ kw }}</span>
+                </div>
+              </div>
+
+              <!-- 人工复核提示 -->
+              <div v-if="msg.vision.needs_human_review" class="vision-review-banner">
+                <span class="review-icon">👁️</span>
+                <span>{{ msg.vision.review_reason || '建议由专业人员复核诊断结果' }}</span>
+              </div>
+
+              <!-- RAG 诊断结论 -->
+              <div v-if="msg.ragAnswer" class="vision-section vision-diagnosis">
+                <div class="vision-section-title">📋 诊断结论</div>
+                <div class="msg-content structured" v-html="formatAnswer(msg.ragAnswer)"></div>
+              </div>
+
+              <!-- 跨模态关联提示 -->
+              <div v-if="msg.crossModalHints && msg.crossModalHints.length" class="vision-cross-hint">
+                <span class="cross-icon">🔄</span>
+                <span>{{ msg.crossModalHints[0] }}</span>
+              </div>
+
+              <!-- RAG 引用来源 -->
+              <div v-if="msg.citations && msg.citations.length" class="citation-list">
+                <div class="citation-title">📚 参考来源</div>
+                <a v-for="source in msg.citations" :key="source.id" class="citation-card" :href="source.file_url" target="_blank" rel="noopener">
+                  <span class="citation-id">[{{ source.id }}]</span>
+                  <span class="citation-main">
+                    <strong>《{{ source.document_title }}》</strong>
+                    <small>第 {{ source.page_label }} 页 · {{ source.section_title || '未识别章节' }}</small>
+                  </span>
+                </a>
+              </div>
+
+              <!-- 相似案例推荐 -->
+              <div v-if="msg.similarItems && msg.similarItems.length" class="vision-section">
+                <div class="vision-section-title">📚 跨模态相似案例匹配</div>
+                <div class="similar-list">
+                  <div v-for="(item, si) in msg.similarItems.slice(0, 4)" :key="si" class="similar-card" @click="goToSimilar(item)">
+                    <div class="similar-type-badge" :class="item.type">
+                      {{ item.type === 'case' ? '案例' : '指导' }}
+                    </div>
+                    <div class="similar-main">
+                      <div class="similar-title">{{ item.title }}</div>
+                      <div class="similar-meta">
+                        <span v-if="item.device">{{ item.device }}</span>
+                        <span v-if="item.device_type">{{ item.device_type }}</span>
+                        <span v-if="item.tag" class="similar-tag">{{ item.tag }}</span>
+                      </div>
+                      <div v-if="item.fault" class="similar-desc">{{ (item.fault || '').slice(0, 60) }}{{ item.fault && item.fault.length > 60 ? '…' : '' }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 常规文本 AI 消息 -->
             <div v-else>
               <div class="msg-content structured" v-html="formatAnswer(msg.content)"></div>
               <!-- 参考来源卡片（RAG 检索引用） -->
@@ -111,6 +245,56 @@
               </div>
             </div>
             <div class="msg-time">{{ formatMsgTime(msg.time) }}<span v-if="msg.llm_via" class="via-tag"> · {{ viaLabel(msg.llm_via) }}</span></div>
+
+              <!-- AI 回答反馈：评分 + 修正（仅 AI 消息显示） -->
+              <div v-if="msg.role === 'assistant' && !msg._feedbackSubmitted" class="feedback-bar">
+                <span class="feedback-label">这个答案有帮助吗？</span>
+                <button
+                  class="feedback-btn"
+                  :class="{ active: msg._feedbackRating === 'useful' }"
+                  @click="submitFeedback(msg, 'useful')"
+                  :disabled="msg._feedbackSubmitting"
+                  title="有用"
+                >👍 有用</button>
+                <button
+                  class="feedback-btn"
+                  :class="{ active: msg._feedbackRating === 'useless' }"
+                  @click="submitFeedback(msg, 'useless')"
+                  :disabled="msg._feedbackSubmitting"
+                  title="没用"
+                >👎 没用</button>
+                <button
+                  class="feedback-btn feedback-btn-correction"
+                  :class="{ active: msg._showCorrection }"
+                  @click="toggleCorrection(msg)"
+                  title="我要修正"
+                >✏️ 修正</button>
+              </div>
+              <div v-if="msg.role === 'assistant' && msg._feedbackSubmitted" class="feedback-done">
+                ✅ {{ msg._feedbackDoneText || '感谢反馈！' }}
+                <span v-if="msg._feedbackRating === 'corrected'" class="feedback-corr-hint">（修正已提交，管理员审核后将用于优化系统）</span>
+              </div>
+
+              <!-- 修正输入区 -->
+              <transition name="correction-slide">
+                <div v-if="msg.role === 'assistant' && msg._showCorrection" class="correction-area">
+                  <textarea
+                    v-model="msg._correctionText"
+                    class="correction-input"
+                    rows="3"
+                    placeholder="请描述您的修正建议：正确的步骤/原因/方案是什么？"
+                    @keydown.ctrl.enter="submitFeedback(msg, 'corrected')"
+                  ></textarea>
+                  <div class="correction-actions">
+                    <span class="correction-hint">按 Ctrl+Enter 快速提交</span>
+                    <button
+                      class="btn btn-primary btn-xs"
+                      @click="submitFeedback(msg, 'corrected')"
+                      :disabled="msg._feedbackSubmitting || !(msg._correctionText || '').trim()"
+                    >{{ msg._feedbackSubmitting ? '提交中…' : '提交修正' }}</button>
+                  </div>
+                </div>
+              </transition>
           </div>
         </div>
 
@@ -620,35 +804,15 @@ export default {
         if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '图片诊断失败')
         const vision = data.vision_analysis || {}
         const rag = data.diagnosis || {}
-        const facts = (vision.visible_facts || []).join('；') || '未识别到明确可见异常'
-        const ocr = (vision.ocr_text || []).join('；') || '未识别到文字或型号'
-        const faults = (vision.suspected_faults || []).join('；') || '暂无可靠故障推测'
-        const parts = []
-        if (vision.is_overview) parts.push(`📷 整机/远景图（建议拍摄局部特写以获得更精准诊断）`)
-        if (vision.equipment) parts.push(`设备型号：${vision.equipment}`)
-        if (vision.equipment_category) parts.push(`设备类别：${vision.equipment_category}`)
-        if (vision.component_type) parts.push(`部件类型：${vision.component_type}`)
-        if (vision.component) parts.push(`部件：${vision.component}`)
-        if (vision.fault_domain) parts.push(`领域：${vision.fault_domain}`)
-        parts.push(`可见事实：${facts}`)
-        parts.push(`OCR：${ocr}`)
-        parts.push(`疑似故障：${faults}`)
-        parts.push(`置信度：${Math.round((vision.confidence || 0) * 100)}%`)
-        if (vision.confidence > 0 && vision.confidence < 0.3) parts.push('⚠️ 置信度较低，结果仅供参考')
-        parts.push(`人工复核：${vision.review_reason || '建议由专业人员复核'}`)
-        const visionText = `【图片识别】\n${parts.join('\n')}`
-        const retrieval = rag.retrieval || {}
-        const coverage = typeof retrieval.lexical_coverage === 'number'
-          ? `${Math.round(retrieval.lexical_coverage * 100)}%`
-          : '未知'
-        const retrievalText = `【检索过程】\n检索关键词：${data.retrieval_query || '未生成'}${retrieval.fault_domain ? '\n检索领域：' + retrieval.fault_domain : ''}${retrieval.domain_boosted_count ? '\n领域加权命中：' + retrieval.domain_boosted_count + '条' : ''}\n证据关键词覆盖率：${coverage}`
-        const ragText = rag.answer || '现有知识库证据不足，未生成检修步骤。'
         this.messages.push({
           role: 'assistant',
-          content: visionText + '\n\n' + retrievalText + '\n\n' + ragText,
+          content: '',
+          ragAnswer: rag.answer || '',
           citations: rag.citations || [],
           answerable: rag.answerable,
           vision: vision,
+          similarItems: data.similar_items || [],
+          crossModalHints: data.cross_modal_hints || [],
           llm_via: 'vision+rag',
           time: Date.now()
         })
@@ -753,6 +917,32 @@ export default {
       if (!size) return ''
       return size < 1024 * 1024 ? `${Math.round(size / 1024)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`
     },
+    // ========== 视觉诊断卡片工具函数 ==========
+    confidenceLevel(score) {
+      if (!score && score !== 0) return 'unknown'
+      if (score >= 0.6) return 'high'
+      if (score >= 0.3) return 'medium'
+      return 'low'
+    },
+    confidenceLevelLabel(score) {
+      if (!score && score !== 0) return '未知'
+      if (score >= 0.6) return '较高'
+      if (score >= 0.3) return '一般'
+      return '较低'
+    },
+    confidenceColor(score) {
+      if (!score && score !== 0) return 'var(--text-muted)'
+      if (score >= 0.6) return '#22c55e'
+      if (score >= 0.3) return '#eab308'
+      return '#ef4444'
+    },
+    goToSimilar(item) {
+      if (item.type === 'case') {
+        this.$router.push('/case')
+      } else if (item.type === 'guide') {
+        this.$router.push('/guide')
+      }
+    },
     // ========== 工具函数 ==========
     kindLabel(k) {
       return { case: '故障案例', guide: '作业指导', report: '员工方案' }[k] || '知识库条目'
@@ -834,7 +1024,11 @@ export default {
         const latest = this.messages.map(m => ({
           role: m.role, content: m.content, time: m.time,
           citations: m.citations, refs: m.refs, llm_via: m.llm_via, answerable: m.answerable,
-          demo: m.demo
+          demo: m.demo,
+          _feedbackSubmitted: m._feedbackSubmitted || false,
+          _feedbackRating: m._feedbackRating || null,
+          _feedbackDoneText: m._feedbackDoneText || '',
+          _feedbackId: m._feedbackId || ''
         })).slice(0, 50)
         list.unshift({ id: Date.now(), time: Date.now(), messages: latest })
         while (list.length > MAX_HISTORY) list.pop()
@@ -853,6 +1047,68 @@ export default {
           }
         }
       } catch (e) {}
+    },
+    // ========== AI 回答反馈 ==========
+    _generateFeedbackId(msg) {
+      if (!msg._feedbackId) {
+        msg._feedbackId = 'fb_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8)
+      }
+      return msg._feedbackId
+    },
+    async submitFeedback(msg, rating) {
+      if (msg._feedbackSubmitting) return
+      if (rating === 'corrected' && !(msg._correctionText || '').trim()) return
+      msg._feedbackSubmitting = true
+      msg._feedbackRating = rating
+      const feedbackId = this._generateFeedbackId(msg)
+      const payload = {
+        feedback_id: feedbackId,
+        question: '',
+        answer: msg.content || '',
+        rating: rating,
+        correction_text: rating === 'corrected' ? msg._correctionText : '',
+        llm_via: msg.llm_via || '',
+        fault_domain: '',
+        device_model: '',
+      }
+      // 从历史消息中找到对应的用户提问
+      const myIndex = this.messages.indexOf(msg)
+      for (let i = myIndex - 1; i >= 0; i--) {
+        if (this.messages[i].role === 'user') {
+          payload.question = this.messages[i].content || ''
+          break
+        }
+      }
+      try {
+        const token = localStorage.getItem('equipai_token') || ''
+        const res = await fetch('/api/ai/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+          body: JSON.stringify(payload)
+        })
+        const data = await res.json()
+        if (data && (data.code === 200 || res.ok)) {
+          msg._feedbackSubmitted = true
+          msg._showCorrection = false
+          msg._feedbackDoneText = rating === 'useful' ? '感谢反馈！'
+            : rating === 'useless' ? '已收到您的反馈，我们将持续优化！'
+            : '修正已提交，感谢您的贡献！'
+        } else {
+          msg._feedbackRating = null
+          msg._feedbackDoneText = '提交失败，请重试'
+        }
+      } catch (e) {
+        msg._feedbackRating = null
+        msg._feedbackDoneText = '网络异常，提交失败'
+      } finally {
+        msg._feedbackSubmitting = false
+      }
+    },
+    toggleCorrection(msg) {
+      msg._showCorrection = !msg._showCorrection
+      if (!msg._showCorrection && !msg._correctionText) {
+        msg._feedbackRating = null
+      }
     }
   }
 }
@@ -1071,6 +1327,118 @@ export default {
   color: var(--primary);
   margin-left: 4px;
   font-weight: 500;
+}
+
+/* AI 回答反馈 */
+.feedback-bar {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.feedback-label {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+.feedback-btn {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.feedback-btn:hover {
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+.feedback-btn.active {
+  background: var(--primary-subtle);
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+.feedback-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.feedback-btn-correction {
+  margin-left: 4px;
+}
+.feedback-btn-correction.active {
+  background: rgba(255, 165, 2, 0.1);
+  border-color: var(--accent-orange);
+  color: var(--accent-orange);
+}
+.feedback-done {
+  margin-top: 10px;
+  padding-top: 8px;
+  font-size: 0.75rem;
+  color: var(--accent-green);
+  font-weight: 500;
+  border-top: 1px dashed var(--border-subtle);
+  line-height: 1.5;
+}
+.feedback-corr-hint {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.correction-area {
+  margin-top: 8px;
+  padding: 10px;
+  background: rgba(255, 165, 2, 0.05);
+  border: 1px solid rgba(255, 165, 2, 0.2);
+  border-radius: var(--radius);
+}
+.correction-input {
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  resize: vertical;
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+.correction-input:focus {
+  outline: none;
+  border-color: var(--accent-orange);
+  box-shadow: 0 0 0 2px rgba(255, 165, 2, 0.1);
+}
+.correction-input::placeholder {
+  color: var(--text-muted);
+}
+.correction-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+.correction-hint {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.correction-slide-enter-active,
+.correction-slide-leave-active {
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+.correction-slide-enter-from,
+.correction-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 /* 对话区：占满剩余高度，页面级滚动条控制 */
@@ -1571,11 +1939,284 @@ export default {
   text-align: center;
 }
 
+/* 视觉诊断卡片 ============================================= */
+.vision-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* 头部 */
+.vision-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.vision-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.vision-icon {
+  font-size: 1.75rem;
+  filter: drop-shadow(0 0 6px rgba(0,212,255,0.4));
+}
+.vision-title {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.vision-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+/* 置信度仪表 */
+.confidence-meter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.confidence-ring {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+.confidence-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.confidence-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+.confidence-meter.high .confidence-text { color: #22c55e; }
+.confidence-meter.medium .confidence-text { color: #eab308; }
+.confidence-meter.low .confidence-text { color: #ef4444; }
+.confidence-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.confidence-label { font-size: 0.625rem; color: var(--text-muted); }
+.confidence-badge {
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  text-align: center;
+}
+.confidence-badge.high { background: rgba(34,197,94,0.15); color: #22c55e; }
+.confidence-badge.medium { background: rgba(234,179,8,0.15); color: #eab308; }
+.confidence-badge.low { background: rgba(239,68,68,0.15); color: #ef4444; }
+.confidence-badge.unknown { background: rgba(100,116,139,0.15); color: #94a3b8; }
+
+/* 各区块 */
+.vision-section {
+  padding: 8px 0;
+}
+.vision-section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  letter-spacing: 0.3px;
+}
+.vision-ident-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.ident-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+.ident-label {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ident-value {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.ident-highlight {
+  color: var(--primary);
+  font-weight: 700;
+}
+/* 标签云 */
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.tag-item {
+  display: inline-block;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  border-radius: 999px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.fact-tag {
+  background: rgba(37,99,235,0.1);
+  color: #60a5fa;
+  border: 1px solid rgba(37,99,235,0.2);
+}
+.fault-tag {
+  background: rgba(239,68,68,0.1);
+  color: #f87171;
+  border: 1px solid rgba(239,68,68,0.2);
+}
+.kw-tag {
+  background: rgba(139,92,246,0.1);
+  color: #a78bfa;
+  border: 1px solid rgba(139,92,246,0.2);
+}
+/* OCR 显示 */
+.ocr-display {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border-active);
+  border-radius: 6px;
+  line-height: 1.6;
+}
+/* 人工复核横幅 */
+.vision-review-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  color: var(--accent-orange);
+  background: rgba(255,165,2,0.1);
+  border: 1px solid rgba(255,165,2,0.2);
+  border-radius: 6px;
+}
+.review-icon { font-size: 0.9375rem; }
+/* 诊断结论 */
+.vision-diagnosis {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 4px;
+  padding-top: 12px;
+}
+/* 跨模态提示 */
+.vision-cross-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  background: linear-gradient(135deg, rgba(139,92,246,0.08), rgba(37,99,235,0.08));
+  border: 1px solid rgba(139,92,246,0.15);
+  border-radius: 6px;
+}
+.cross-icon { font-size: 0.8125rem; }
+/* 相似案例 */
+.similar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.similar-card {
+  display: flex;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.similar-card:hover {
+  border-color: var(--border-active);
+  background: var(--primary-subtle);
+}
+.similar-type-badge {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  font-weight: 700;
+  border-radius: 6px;
+}
+.similar-type-badge.case {
+  background: rgba(37,99,235,0.15);
+  color: #60a5fa;
+}
+.similar-type-badge.guide {
+  background: rgba(139,92,246,0.15);
+  color: #a78bfa;
+}
+.similar-main {
+  flex: 1;
+  min-width: 0;
+}
+.similar-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.similar-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.similar-tag {
+  padding: 0 4px;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  border-radius: 3px;
+}
+.similar-desc {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
 @media (max-width: 600px) {
   .filter-item {
     min-width: 100%;
   }
   .enhance-filters {
+    flex-direction: column;
+  }
+  .vision-ident-grid {
+    grid-template-columns: 1fr;
+  }
+  .vision-header {
     flex-direction: column;
   }
 }

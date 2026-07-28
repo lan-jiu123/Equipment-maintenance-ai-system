@@ -220,6 +220,9 @@ def _on_startup():
     _ensure_profile_columns(engine)
     _ensure_guide_columns(engine)
     ticket_category_added = _ensure_ticket_category_column(engine)
+    _ensure_device_commission_column(engine)
+    _ensure_case_submitter_columns(engine)
+    _ensure_report_fault_column(engine)
     # 3. 只有 users 为空才 seed，避免重复插入
     from .database import SessionLocal
     db = SessionLocal()
@@ -227,7 +230,7 @@ def _on_startup():
         seed_if_empty(db)
         _reseed_guides(db)
         _backfill_notification_history_if_empty(db)
-        # 兼容上一版本：已指定维修工但仍为 pending 的工单迁入“待确认”。
+        # 兼容上一版本：已指定维修工但仍为 pending 的工单迁入”待处理”。
         assigned_status_migrated = db.query(Ticket).filter(
             Ticket.status == TICKET_PENDING,
             Ticket.assignee_id.isnot(None),
@@ -320,9 +323,19 @@ def _on_startup():
             if not device.fault_time:
                 device.fault_time = _utcnow() - timedelta(hours=(device.id % 8) + 1)
             completed_fault_reports += 1
+        # 标签迁移：旧版设备标签 → 新版简称
+        _tag_map = {"智能制造": "综合", "机械动力": "机械", "电气控制": "电气",
+                     "液压执行": "液压", "工业仪表": "仪表", "安全保护": "安全"}
+        tag_migrated = 0
+        for _old_tag, _new_tag in _tag_map.items():
+            _changed = db.query(Device).filter(Device.tag == _old_tag).update(
+                {Device.tag: _new_tag}, synchronize_session=False
+            )
+            if _changed:
+                tag_migrated += _changed
         if (
             assigned_status_migrated or future_tickets or linked_tickets or repairing_devices
-            or completed_fault_reports or categorized_tickets
+            or completed_fault_reports or categorized_tickets or tag_migrated
         ):
             db.commit()
 
@@ -363,6 +376,61 @@ def _ensure_guide_columns(engine) -> None:
         try:
             with engine.connect() as conn:
                 conn.execute(text(f"ALTER TABLE guides ADD COLUMN {col} {typ}"))
+                conn.commit()
+        except Exception:
+            pass
+
+
+def _ensure_device_commission_column(engine) -> None:
+    """为已有 devices 表补齐 commission_date 列。"""
+    try:
+        with engine.connect() as conn:
+            existing = {r[1] for r in conn.execute(
+                text("PRAGMA table_info(devices)")
+            ).fetchall()}
+    except Exception:
+        return
+    if "commission_date" not in existing:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE devices ADD COLUMN commission_date TEXT"))
+                conn.commit()
+        except Exception:
+            pass
+
+
+def _ensure_case_submitter_columns(engine) -> None:
+    """为已有 cases 表补齐 submitter_id / submitter_role 列。"""
+    try:
+        with engine.connect() as conn:
+            existing = {r[1] for r in conn.execute(
+                text("PRAGMA table_info(cases)")
+            ).fetchall()}
+    except Exception:
+        return
+    for col, typ in {"submitter_id": "INTEGER", "submitter_role": "TEXT"}.items():
+        if col not in existing:
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE cases ADD COLUMN {col} {typ}"))
+                    conn.commit()
+            except Exception:
+                pass
+
+
+def _ensure_report_fault_column(engine) -> None:
+    """为已有 knowledge_reports 表补齐 fault 列。"""
+    try:
+        with engine.connect() as conn:
+            existing = {r[1] for r in conn.execute(
+                text("PRAGMA table_info(knowledge_reports)")
+            ).fetchall()}
+    except Exception:
+        return
+    if "fault" not in existing:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE knowledge_reports ADD COLUMN fault TEXT"))
                 conn.commit()
         except Exception:
             pass
@@ -783,7 +851,7 @@ def dashboard_overview(
     events: list[dict] = []
     for t in db.query(Ticket).order_by(Ticket.submit_time.desc()).limit(8).all():
         when = int(t.submit_time.timestamp()) if t.submit_time else int(time.time())
-        status_label = {"pending": "待派单", "assigned": "待确认", "doing": "处理中", "done": "已完成", "over": "超时"}.get(t.status, t.status)
+        status_label = {"pending": "待派单", "assigned": "待处理", "doing": "处理中", "done": "已完成", "over": "超时"}.get(t.status, t.status)
         events.append({"time": when, "title": t.title, "type": "ticket",
                        "status": t.status, "status_label": status_label,
                        "device": t.device_name, "user": "系统"})
@@ -795,6 +863,95 @@ def dashboard_overview(
     events.sort(key=lambda x: x["time"], reverse=True)
     data["recent_events"] = events[:10]
     return ok(data)
+
+
+# ---------- 知识贡献排行榜（激励机制）----------
+@app.get("/api/leaderboard/contributions", response_model=ApiResp)
+def contribution_leaderboard(
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """返回知识贡献排行榜：统计每位员工已通过审核的知识报告和案例贡献。"""
+    # 统计已审核通过的知识报告
+    approved_reports = (
+        db.query(
+            KnowledgeReport.submitter_id,
+            KnowledgeReport.submitter_name,
+            sqlalchemy_func.count(KnowledgeReport.id).label("report_count"),
+        )
+        .filter(
+            KnowledgeReport.status.in_(["approved", "synced_case", "synced_guide"]),
+        )
+        .group_by(KnowledgeReport.submitter_id, KnowledgeReport.submitter_name)
+        .all()
+    )
+
+    # 统计案例库中的贡献者
+    case_contributions = (
+        db.query(
+            Case.submitter_id,
+            Case.contributor_name,
+            sqlalchemy_func.count(Case.id).label("case_count"),
+            Case.submitter_role,
+        )
+        .filter(Case.submitter_id.isnot(None))
+        .group_by(Case.submitter_id, Case.contributor_name, Case.submitter_role)
+        .all()
+    )
+
+    # 合并数据
+    contributor_map: dict[int, dict] = {}
+    for rid, rname, rcnt in approved_reports:
+        uid = rid or 0
+        if uid not in contributor_map:
+            contributor_map[uid] = {
+                "user_id": uid,
+                "name": rname or "未知",
+                "reports_approved": 0,
+                "cases_contributed": 0,
+                "total_score": 0,
+            }
+        contributor_map[uid]["reports_approved"] = rcnt
+
+    for sid, cname, ccnt, srole in case_contributions:
+        uid = sid or 0
+        if uid not in contributor_map:
+            contributor_map[uid] = {
+                "user_id": uid,
+                "name": cname or "未知",
+                "reports_approved": 0,
+                "cases_contributed": 0,
+                "total_score": 0,
+            }
+        contributor_map[uid]["cases_contributed"] = ccnt
+
+    # 总积分 = 审核通过报告数 * 10 + 入库案例数 * 20
+    for uid, info in contributor_map.items():
+        info["total_score"] = info["reports_approved"] * 10 + info["cases_contributed"] * 20
+
+    # 排序
+    ranking = sorted(contributor_map.values(), key=lambda x: (-x["total_score"], -x["reports_approved"]))
+    for idx, entry in enumerate(ranking, 1):
+        entry["rank"] = idx
+        entry["is_me"] = entry["user_id"] == current.id
+        # 等级称号
+        score = entry["total_score"]
+        if score >= 100:
+            entry["title"] = "🏆 金牌贡献者"
+        elif score >= 50:
+            entry["title"] = "🥈 银牌贡献者"
+        elif score >= 20:
+            entry["title"] = "🥉 铜牌贡献者"
+        elif score > 0:
+            entry["title"] = "⭐ 初级贡献者"
+        else:
+            entry["title"] = "🌱 待贡献"
+
+    return ok({
+        "ranking": ranking,
+        "my_rank": next((e for e in ranking if e["is_me"]), None),
+        "total_contributors": len(ranking),
+    })
 
 
 # ---------- AI 检索（双模式：有 LLM 用 LLM；无 LLM 返回本地知识库 top5）----------
@@ -936,7 +1093,7 @@ DEVICE_STATUS_LABELS = {
 
 TICKET_STATUS_LABELS = {
     "pending": "待派单",
-    "assigned": "待确认",
+    "assigned": "待处理",
     "doing": "进行中",
     "done": "已完成",
     "over": "超时",
@@ -1014,6 +1171,7 @@ def _to_device_info(d: Device, db: Session,
         location=d.location, status=d.status,
         status_label=DEVICE_STATUS_LABELS.get(d.status, d.status),
         health=health,
+        commission_date=d.commission_date,
         last_repair_at=d.last_repair_at,
         fault_desc=fault_desc,
         fault_reporter_name=fault_reporter_name,
@@ -1056,9 +1214,10 @@ def _to_report_info(r: KnowledgeReport) -> ReportInfo:
     return ReportInfo(
         id=r.id, rid=r.rid, title=r.title, device=r.device,
         type=r.type, source=r.source, level=r.level, tag=r.tag,
-        question=r.question, cause=r.cause, solution=r.solution,
+        question=r.question, fault=r.fault, cause=r.cause, solution=r.solution,
         repair_process=r.repair_process, technical_measures=r.technical_measures,
         repair_result=r.repair_result, summary=r.summary,
+        ticket_id=r.ticket_id,
         status=r.status, status_label=REPORT_STATUS_LABELS.get(r.status, r.status),
         submitter_id=r.submitter_id, submitter_name=r.submitter_name,
         submit_time_ts=_ts(r.submit_time),
@@ -1073,12 +1232,16 @@ def _to_report_info(r: KnowledgeReport) -> ReportInfo:
 
 
 def _to_case_info(c: Case) -> CaseInfo:
-    contrib = bool(c.source_report_id or c.contributor_name)
+    # 员工贡献 = 有贡献者且角色是 worker
+    is_employee = bool(c.source_report_id or c.contributor_name) and c.submitter_role == "worker"
     return CaseInfo(
         id=c.id, title=c.title, device=c.device, tag=c.tag,
         fault=c.fault, cause=c.cause, solution=c.solution, summary=c.summary,
         level=c.level, contributor_name=c.contributor_name,
-        is_employee_contribution=contrib,
+        is_employee_contribution=is_employee,
+        source_report_id=c.source_report_id,
+        submitter_id=c.submitter_id,
+        submitter_role=c.submitter_role,
         created_at_ts=_ts(c.created_at),
     )
 
@@ -1284,6 +1447,7 @@ def create_device(form: DeviceCreate, current: User = Depends(get_current_user),
         code=form.code.strip(), name=form.name.strip(),
         tag=form.tag or "机械", location=form.location,
         status=form.status or "normal",
+        commission_date=form.commission_date,
     )
     db.add(d); db.commit(); db.refresh(d)
     return ok(_to_device_info(d, db), "设备创建成功")
@@ -1303,6 +1467,8 @@ def update_device(device_id: int, form: DeviceUpdate,
         d.tag = form.tag
     if form.location is not None:
         d.location = form.location
+    if form.commission_date is not None:
+        d.commission_date = form.commission_date
     if form.status is not None:
         d.status = form.status
         if form.status in ("repairing", "down"):
@@ -1500,7 +1666,7 @@ def assign_ticket(ticket_id: int, form: TicketAssign,
     t.assignee_id = u.id
     # 派单只指定负责人，维修工确认前仍属于待处理状态。
     if t.status not in (TICKET_PENDING, TICKET_ASSIGNED):
-        return fail("只有待派单或待确认工单可以派单", 400)
+        return fail("只有待派单或待处理工单可以派单", 400)
     t.status = TICKET_ASSIGNED
     if form.level and form.level in ("low", "mid", "high"):
         t.level = form.level
@@ -1613,7 +1779,7 @@ def recommend_guides_for_ticket(
 
     # 设备标签 → Guide.device_type 映射
     _TAG_TO_DEVICE_TYPE = {
-        "机械动力": "机械", "智能制造": "机械", "机械传动": "机械", "机加工": "机械",
+        "机械动力": "机械", "综合": "综合", "机械传动": "机械", "机加工": "机械",
         "电气控制": "电气",
         "液压执行": "液压",
         "工业仪表": "仪表",
@@ -1745,7 +1911,59 @@ def recommend_guides_for_ticket(
             "match_score": match_pct,
         })
 
-    return ok({"recommended": results, "device_type": device_type, "level": level})
+    # ---- 动态流程生成：当所有预置指南匹配度均低于阈值时，调用 LLM 自适应生成 ----
+    DYNAMIC_THRESHOLD = 40  # 最高分低于此阈值时触发动态生成
+    dynamic_guide = None
+    if results and results[0]["match_score"] < DYNAMIC_THRESHOLD and problem:
+        try:
+            device_tag = device_type or "机械"
+            gen_prompt = (
+                f"你是工业设备检修专家。请为以下维修任务生成结构化的检修作业步骤。\n"
+                f"设备类型：{device_tag}\n"
+                f"检修等级：{level}\n"
+                f"设备名称：{device_name or '未指定'}\n"
+                f"故障描述：{problem}\n\n"
+                f"请严格按照 JSON 格式输出（不要使用 Markdown 代码围栏）：\n"
+                f"{{\n"
+                f'  "title": "检修步骤标题",\n'
+                f'  "steps": [\n'
+                f'    {{"step": 1, "content": "具体操作步骤", "tip": "注意事项"}}\n'
+                f"  ],\n"
+                f'  "risk_note": "总体风险提醒",\n'
+                f'  "required_tools": ["工具1", "工具2"],\n'
+                f'  "estimated_duration_min": 60\n'
+                f"}}\n"
+                f"要求：步骤必须专业、可操作、安全合规。涉及高压/旋转/高温必须给出安全提醒。"
+            )
+            gen_result, gen_via = _llm_chat_request(gen_prompt, problem)
+            if gen_result:
+                import json as _json
+                try:
+                    gen_data = _json.loads(gen_result)
+                    if isinstance(gen_data, dict) and "steps" in gen_data:
+                        dynamic_guide = {
+                            "title": gen_data.get("title", f"{device_tag}设备 {level}级检修"),
+                            "steps": gen_data.get("steps", []),
+                            "risk_note": gen_data.get("risk_note", ""),
+                            "required_tools": gen_data.get("required_tools", []),
+                            "estimated_duration_min": gen_data.get("estimated_duration_min", 60),
+                            "generated": True,
+                        }
+                except _json.JSONDecodeError:
+                    pass
+        except Exception:
+            dynamic_guide = None
+
+    response_data = {
+        "recommended": results,
+        "device_type": device_type,
+        "level": level,
+    }
+    if dynamic_guide:
+        response_data["dynamic_guide"] = dynamic_guide
+        response_data["dynamic_guide_note"] = "未能匹配到完全合适的预置作业指导，已由 AI 根据故障描述动态生成，请现场核对后使用"
+
+    return ok(response_data)
 
 # ============================================================
 # 工单附件 API
@@ -2115,8 +2333,8 @@ def create_report(form: ReportCreate, current: User = Depends(get_current_user),
         rid=rid, title=form.title.strip(), device=form.device,
         type=form.type or "case", source=form.source or "manual",
         level=form.level, tag=form.tag,
-        question=form.question.strip(), cause=form.cause,
-        solution=form.solution.strip(),
+        question=form.question.strip(), fault=form.fault,
+        cause=form.cause, solution=form.solution.strip(),
         repair_process=form.repair_process,
         technical_measures=form.technical_measures,
         repair_result=form.repair_result,
@@ -2242,22 +2460,31 @@ def review_report(report_id: int, form: ReportReview,
             return fail("该报告已同步为案例，请勿重复操作", 400)
         # 若已存在对应 case 则更新，否则新增
         existing = db.query(Case).filter(Case.source_report_id == r.id).first()
+        # 获取提交者角色
+        _submitter_role = None
+        if r.submitter_id:
+            _u = db.query(User).filter(User.id == r.submitter_id).first()
+            _submitter_role = _u.role if _u else None
         if existing:
             existing.title = r.title
             existing.device = r.device
             existing.tag = r.tag or "综合"
-            existing.fault = r.question
+            existing.fault = r.fault or r.question
             existing.cause = r.cause
             existing.solution = r.solution
             existing.summary = r.summary
             existing.level = r.level or "mid"
             existing.contributor_name = r.submitter_name
+            existing.submitter_id = r.submitter_id
+            existing.submitter_role = _submitter_role
         else:
             c = Case(
                 title=r.title, device=r.device, tag=r.tag or "综合",
-                fault=r.question, cause=r.cause, solution=r.solution,
+                fault=r.fault or r.question, cause=r.cause, solution=r.solution,
                 summary=r.summary, level=r.level or "mid",
                 source_report_id=r.id, contributor_name=r.submitter_name,
+                submitter_id=r.submitter_id,
+                submitter_role=_submitter_role,
                 created_at=now,
             )
             db.add(c)
@@ -2460,11 +2687,30 @@ def delete_notifications(
 # B-4. 案例库 API
 # ============================================================
 
+
+def _get_attachments_from_report(db, report_id):
+    if not report_id:
+        return []
+    atts = db.query(ReportAttachment).filter(
+        ReportAttachment.report_id == report_id
+    ).all()
+    return [
+        {
+            "id": a.id,
+            "filename": a.filename,
+            "file_size": a.file_size,
+            "mime_type": a.mime_type,
+            "download_url": f"/api/reports/{report_id}/attachments/{a.id}",
+            "uploaded_at_ts": _ts(a.uploaded_at),
+        }
+        for a in atts
+    ]
+
 @app.get("/api/cases", response_model=ApiResp[PageResp[CaseInfo]])
 def list_cases(
     page: int = 1, size: int = 20, keyword: Optional[str] = None,
     tag: Optional[str] = None, level: Optional[str] = None,
-    source: str = "all",   # all / official / employee
+    source: str = "all",   # all / official / employee / mine
     current: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
@@ -2474,10 +2720,15 @@ def list_cases(
     if level:
         q = q.filter(Case.level == level)
     if source == "employee":
-        from sqlalchemy import or_ as _or
-        q = q.filter(_or(Case.source_report_id.isnot(None), Case.contributor_name.isnot(None)))
+        q = q.filter(Case.submitter_role == "worker")
     elif source == "official":
-        q = q.filter(Case.source_report_id.is_(None), Case.contributor_name.is_(None))
+        q = q.filter(Case.submitter_id.is_(None))
+    elif source == "mine" and current:
+        from sqlalchemy import or_ as _or2
+        q = q.filter(_or2(
+            Case.submitter_id == current.id,
+            Case.contributor_name == current.fullname,
+        ))
     if keyword:
         kw = f"%{keyword.strip()}%"
         from sqlalchemy import or_
@@ -2508,6 +2759,20 @@ def get_case(case_id: int, current: Optional[User] = Depends(get_current_user_op
     if not c:
         return fail("案例不存在", 404)
     return ok(_to_case_info(c))
+
+
+@app.get("/api/cases/{case_id}/attachments", response_model=ApiResp)
+def get_case_attachments(
+    case_id: int,
+    current: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    c = db.query(Case).filter(Case.id == case_id).first()
+    if not c:
+        return fail("案例不存在", 404)
+    attachments = _get_attachments_from_report(db, c.source_report_id)
+    return ok({"items": attachments, "total": len(attachments)})
+
 
 
 # ============================================================
@@ -2562,6 +2827,19 @@ def get_guide(guide_id: int, current: Optional[User] = Depends(get_current_user_
     if not g:
         return fail("作业指导不存在", 404)
     return ok(_to_guide_info(g))
+
+
+@app.get("/api/guides/{guide_id}/attachments", response_model=ApiResp)
+def get_guide_attachments(
+    guide_id: int,
+    current: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    g = db.query(Guide).filter(Guide.id == guide_id).first()
+    if not g:
+        return fail("作业指导不存在", 404)
+    attachments = _get_attachments_from_report(db, g.source_report_id)
+    return ok({"items": attachments, "total": len(attachments)})
 
 
 @app.get("/api/guides/recommend", response_model=ApiResp)

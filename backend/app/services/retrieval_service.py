@@ -91,18 +91,34 @@ def _local_embedding(text: str, dimension: int = DEFAULT_DIMENSION) -> list[floa
 def _api_embeddings(texts: list[str]) -> list[list[float]]:
     if not EMBEDDING_API_URL or not EMBEDDING_API_KEY:
         raise RuntimeError("EMBEDDING_API_URL 或 EMBEDDING_API_KEY 未配置")
-    response = requests.post(
-        EMBEDDING_API_URL,
-        headers={
-            "Authorization": f"Bearer {EMBEDDING_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={"model": EMBEDDING_MODEL, "input": texts},
-        timeout=180,
-    )
-    response.raise_for_status()
-    data = sorted(response.json()["data"], key=lambda item: item.get("index", 0))
-    return [_normalize([float(value) for value in item["embedding"]]) for item in data]
+    # text-embedding-v3 最大 batch=10，超限会报错
+    MAX_API_BATCH = 10
+    all_results: list[list[float]] = []
+    for start in range(0, len(texts), MAX_API_BATCH):
+        batch = texts[start : start + MAX_API_BATCH]
+        # 过滤空文本，避免 API 拒绝
+        batch = [t for t in batch if t.strip()]
+        if not batch:
+            continue
+        response = requests.post(
+            EMBEDDING_API_URL,
+            headers={
+                "Authorization": f"Bearer {EMBEDDING_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={"model": EMBEDDING_MODEL, "input": batch},
+            timeout=180,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"Embedding API 错误 (HTTP {response.status_code}): "
+                f"{response.text[:300]}"
+            )
+        data = sorted(response.json()["data"], key=lambda item: item.get("index", 0))
+        all_results.extend(
+            _normalize([float(v) for v in item["embedding"]]) for item in data
+        )
+    return all_results
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
@@ -131,7 +147,7 @@ def _chunk_embedding_text(chunk: dict) -> str:
     return "\n".join(part for part in parts if part)
 
 
-def index_document(document_id: str, batch_size: int = 32) -> dict:
+def index_document(document_id: str, batch_size: int = 10) -> dict:
     with get_connection() as connection:
         document = connection.execute(
             "SELECT id, status FROM documents WHERE id = ?", (document_id,)

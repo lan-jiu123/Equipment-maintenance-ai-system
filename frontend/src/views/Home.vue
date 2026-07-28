@@ -146,7 +146,7 @@
             <div class="task-bar"><div class="task-fill pending-fill" :style="{ width: taskPercent(tasks.pending) + '%' }"></div></div>
           </button>
           <button type="button" class="task-card" @click="goOrders('confirming')">
-            <div class="task-top"><div class="task-dot confirming"></div><div class="task-label">待确认</div></div>
+            <div class="task-top"><div class="task-dot confirming"></div><div class="task-label">待处理</div></div>
             <div class="task-value confirming-val">{{ tasks.assigned }}</div>
             <div class="task-bar"><div class="task-fill confirming-fill" :style="{ width: taskPercent(tasks.assigned) + '%' }"></div></div>
           </button>
@@ -170,10 +170,10 @@
 
       <div class="combined-divider"></div>
 
-      <!-- 下：知识报告审核统计 -->
+      <!-- 下：报告/指导审核统计 -->
       <div class="combined-block">
         <div class="panel-header">
-          <h2 class="panel-title">📚 知识报告审核</h2>
+          <h2 class="panel-title">📚 报告/指导审核</h2>
           <span class="panel-hint">员工实践方案贡献</span>
         </div>
         <div class="kr-grid">
@@ -461,13 +461,13 @@ export default {
 /* ====================== 设备运行概览 ====================== */
 .overview-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
 }
 .ov-card {
   position: relative; overflow: hidden;
-  padding: 12px 14px;
-  display: flex; flex-direction: row; align-items: flex-start; gap: 10px;
+  padding: 18px 20px;
+  display: flex; flex-direction: row; align-items: center; gap: 14px;
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -476,9 +476,9 @@ export default {
 /* 立体装饰图案（双层叠加 + 阴影 = 3D 效果） */
 .ov-card::after {
   content: ''; position: absolute;
-  right: -28px; bottom: -28px;
-  width: 90px; height: 90px; border-radius: 50%;
-  opacity: 0.15;
+  right: -20px; bottom: -20px;
+  width: 110px; height: 110px; border-radius: 50%;
+  opacity: 0.12;
   box-shadow: inset -3px -3px 8px rgba(0,0,0,0.2), inset 3px 3px 8px rgba(255,255,255,0.1);
 }
 .ov-card::before {
