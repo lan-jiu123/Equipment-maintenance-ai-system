@@ -75,6 +75,43 @@
             <!-- AI 消息：结构化渲染 + 参考来源 -->
             <!-- 图片诊断结构化卡片 -->
             <div v-else-if="msg.vision" class="vision-card">
+              <!-- 多 Agent 协同诊断流程（折叠，安全结果始终可见） -->
+              <div v-if="msg.agentsTrajectory && msg.agentsTrajectory.length" class="agent-timeline">
+                <div class="agent-timeline-head collapsible-header" @click="msg._showAgents = !msg._showAgents">
+                  <span class="collapse-icon">{{ msg._showAgents ? '▼' : '▶' }}</span>
+                  <span class="agent-timeline-title">🤖 AI协同诊断流程</span>
+                </div>
+                <div v-show="msg._showAgents" class="agent-steps">
+                  <div
+                    v-for="(agent, ai) in msg.agentsTrajectory"
+                    :key="ai"
+                    class="agent-step"
+                    :class="'agent-' + agent.status"
+                  >
+                    <div class="agent-step-icon">{{ agent.icon }}</div>
+                    <div class="agent-step-body">
+                      <div class="agent-step-head">
+                        <span class="agent-step-name">{{ agent.display_name || agent.name }}</span>
+                        <span class="agent-step-status" :class="'as-' + agent.status">
+                          {{ agent.status === 'success' ? '✅ 完成' : '❌ 失败' }}
+                        </span>
+                      </div>
+                      <div v-if="agent.summary" class="agent-step-summary">{{ agent.summary }}</div>
+                      <div v-if="agent.error" class="agent-step-error">{{ agent.error }}</div>
+                    </div>
+                  </div>
+                </div>
+                <!-- 安全审核结果（始终可见） -->
+                <div v-if="msg.safetyReview && msg.safetyReview.passed != null" class="agent-safety-result safety-pass">
+                  <div class="safety-result-head">
+                    <span>🛡️ 安全审核完成</span>
+                    <span v-if="msg.safetyReview.risk_level" class="safety-risk">风险等级：{{ msg.safetyReview.risk_level }}</span>
+                  </div>
+                  <div v-if="msg.safetyReview.warnings && msg.safetyReview.warnings.length" class="safety-warnings">
+                    <div v-for="(w, wi) in msg.safetyReview.warnings" :key="wi" class="safety-warning-item">⚠ {{ w }}</div>
+                  </div>
+                </div>
+              </div>
               <!-- 诊断头部：置信度仪表 -->
               <div class="vision-header">
                 <div class="vision-header-left">
@@ -124,51 +161,56 @@
                 </div>
               </div>
 
-              <!-- 可见事实标签 -->
-              <div v-if="msg.vision.visible_facts && msg.vision.visible_facts.length" class="vision-section">
-                <div class="vision-section-title">🔍 可见事实</div>
-                <div class="tag-cloud">
-                  <span v-for="(fact, fi) in msg.vision.visible_facts" :key="fi" class="tag-item fact-tag">{{ fact }}</span>
-                </div>
-              </div>
-
-              <!-- OCR 文字 -->
-              <div v-if="msg.vision.ocr_text && msg.vision.ocr_text.length" class="vision-section">
-                <div class="vision-section-title">📝 识别文字</div>
-                <div class="ocr-display">{{ msg.vision.ocr_text.join(' · ') }}</div>
-              </div>
-
-              <!-- 疑似故障 -->
+              <!-- 疑似故障（最多显示 3 条，可展开） -->
               <div v-if="msg.vision.suspected_faults && msg.vision.suspected_faults.length" class="vision-section">
-                <div class="vision-section-title">⚠️ 疑似故障</div>
-                <div class="tag-cloud">
-                  <span v-for="(fault, fi) in msg.vision.suspected_faults" :key="fi" class="tag-item fault-tag">{{ fault }}</span>
+                <div class="vision-section-title">⚠️ 主要疑似故障</div>
+                <div class="fault-list">
+                  <div v-for="(fault, fi) in (msg._showAllFaults ? msg.vision.suspected_faults : msg.vision.suspected_faults.slice(0, 3))" :key="fi" class="fault-item">{{ fi + 1 }}. {{ fault }}</div>
+                  <button v-if="msg.vision.suspected_faults.length > 3" class="btn btn-text btn-xs" @click="msg._showAllFaults = !msg._showAllFaults">
+                    {{ msg._showAllFaults ? '收起' : '展开更多 (' + (msg.vision.suspected_faults.length - 3) + '条)' }}
+                  </button>
                 </div>
               </div>
 
-              <!-- 检索关键词 -->
-              <div v-if="msg.vision.search_keywords && msg.vision.search_keywords.length" class="vision-section">
-                <div class="vision-section-title">🔎 检索关键词</div>
-                <div class="tag-cloud">
-                  <span v-for="(kw, ki) in msg.vision.search_keywords" :key="ki" class="tag-item kw-tag">{{ kw }}</span>
+              <!-- 可见事实（折叠） -->
+              <div v-if="msg.vision.visible_facts && msg.vision.visible_facts.length" class="vision-section collapsible" :class="{ open: msg._showFacts }">
+                <div class="collapsible-header" @click="msg._showFacts = !msg._showFacts">
+                  <span class="collapse-icon">{{ msg._showFacts ? '▼' : '▶' }}</span>
+                  <span class="collapse-title">查看AI视觉分析依据</span>
+                </div>
+                <div v-if="msg._showFacts" class="collapsible-body">
+                  <div class="tag-cloud">
+                    <span v-for="(fact, fi) in msg.vision.visible_facts" :key="fi" class="tag-item fact-tag">{{ fact }}</span>
+                  </div>
                 </div>
               </div>
 
-              <!-- 人工复核提示 -->
+              <!-- OCR 识别文字（折叠） -->
+              <div v-if="msg.vision.ocr_text && msg.vision.ocr_text.length" class="vision-section collapsible" :class="{ open: msg._showOCR }">
+                <div class="collapsible-header" @click="msg._showOCR = !msg._showOCR">
+                  <span class="collapse-icon">{{ msg._showOCR ? '▼' : '▶' }}</span>
+                  <span class="collapse-title">OCR识别结果</span>
+                </div>
+                <div v-if="msg._showOCR" class="collapsible-body">
+                  <div class="ocr-display">{{ msg.vision.ocr_text.join(' · ') }}</div>
+                </div>
+              </div>
+
+              <!-- AI 可信提示（原人工复核） -->
               <div v-if="msg.vision.needs_human_review" class="vision-review-banner">
-                <span class="review-icon">👁️</span>
-                <span>{{ msg.vision.review_reason || '建议由专业人员复核诊断结果' }}</span>
+                <span class="review-icon">⚠️</span>
+                <span>{{ msg.vision.review_reason || '图片无法确认完整型号，建议结合现场检测数据复核' }}</span>
               </div>
 
-              <!-- RAG 诊断结论 -->
+              <!-- 维修建议（诊断结论，压缩展示） -->
               <div v-if="msg.ragAnswer" class="vision-section vision-diagnosis">
-                <div class="vision-section-title">📋 诊断结论</div>
+                <div class="vision-section-title">📋 维修建议</div>
                 <div class="msg-content structured" v-html="formatAnswer(msg.ragAnswer)"></div>
               </div>
 
               <!-- 跨模态关联提示 -->
               <div v-if="msg.crossModalHints && msg.crossModalHints.length" class="vision-cross-hint">
-                <span class="cross-icon">🔄</span>
+                <span class="cross-icon">📚</span>
                 <span>{{ msg.crossModalHints[0] }}</span>
               </div>
 
@@ -184,9 +226,9 @@
                 </a>
               </div>
 
-              <!-- 相似案例推荐 -->
+              <!-- 参考知识（原跨模态匹配） -->
               <div v-if="msg.similarItems && msg.similarItems.length" class="vision-section">
-                <div class="vision-section-title">📚 跨模态相似案例匹配</div>
+                <div class="vision-section-title">📚 参考知识</div>
                 <div class="similar-list">
                   <div v-for="(item, si) in msg.similarItems.slice(0, 4)" :key="si" class="similar-card" @click="goToSimilar(item)">
                     <div class="similar-type-badge" :class="item.type">
@@ -198,11 +240,18 @@
                         <span v-if="item.device">{{ item.device }}</span>
                         <span v-if="item.device_type">{{ item.device_type }}</span>
                         <span v-if="item.tag" class="similar-tag">{{ item.tag }}</span>
+                        <span v-if="item.relevance_score != null" class="similar-score" :class="item.relevance_score >= 0.75 ? 'score-high' : 'score-mid'">
+                          {{ item.relevance_score >= 0.75 ? '高度匹配' : '相关参考' }}
+                        </span>
                       </div>
-                      <div v-if="item.fault" class="similar-desc">{{ (item.fault || '').slice(0, 60) }}{{ item.fault && item.fault.length > 60 ? '…' : '' }}</div>
                     </div>
                   </div>
                 </div>
+              </div>
+              <!-- 无匹配知识 -->
+              <div v-else-if="msg.crossModalHints && msg.crossModalHints.length" class="vision-cross-hint">
+                <span class="cross-icon">📚</span>
+                <span>{{ msg.crossModalHints[0] }}</span>
               </div>
             </div>
 
@@ -813,7 +862,13 @@ export default {
           vision: vision,
           similarItems: data.similar_items || [],
           crossModalHints: data.cross_modal_hints || [],
+          agentsTrajectory: data.agents_trajectory || [],
+          safetyReview: data.safety_review || {},
           llm_via: 'vision+rag',
+          _showAgents: false,
+          _showAllFaults: false,
+          _showFacts: false,
+          _showOCR: false,
           time: Date.now()
         })
         this.clearImage()
@@ -1940,6 +1995,131 @@ export default {
 }
 
 /* 视觉诊断卡片 ============================================= */
+/* ===== AI 协同诊断流程轨迹 ===== */
+.agent-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  margin-bottom: 4px;
+  background: var(--bg-subtle, rgba(255,255,255,0.02));
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+}
+.agent-timeline-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 2px 0;
+  user-select: none;
+}
+.agent-timeline-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.agent-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+.agent-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-deep, rgba(0,0,0,0.15));
+}
+.agent-step-icon {
+  font-size: 1rem;
+  line-height: 1.4;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+.agent-step-body {
+  flex: 1;
+  min-width: 0;
+}
+.agent-step-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.agent-step-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.agent-step-status {
+  font-size: 0.6875rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.agent-step-status.as-success {
+  color: var(--accent-green, #4ade80);
+  background: rgba(74, 222, 128, 0.1);
+}
+.agent-step-status.as-failed {
+  color: var(--accent-red, #f87171);
+  background: rgba(248, 113, 113, 0.1);
+}
+.agent-step-duration {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+}
+.agent-step-summary {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+.agent-step-error {
+  font-size: 0.75rem;
+  color: var(--accent-red, #f87171);
+  margin-top: 2px;
+}
+.agent-safety-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  margin-top: 2px;
+  background: rgba(74, 222, 128, 0.06);
+  border: 1px solid rgba(74, 222, 128, 0.15);
+}
+.safety-result-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--accent-green, #4ade80);
+}
+.safety-risk {
+  font-weight: 400;
+  opacity: 0.8;
+  color: var(--text-secondary);
+}
+.safety-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 4px;
+}
+.safety-warning-item {
+  font-size: 0.7rem;
+  color: var(--accent-orange, #fbbf24);
+  line-height: 1.4;
+}
+
 .vision-card {
   display: flex;
   flex-direction: column;
@@ -2134,6 +2314,69 @@ export default {
   border-radius: 6px;
 }
 .cross-icon { font-size: 0.8125rem; }
+
+/* 折叠区块 */
+.vision-section.collapsible {
+  padding: 4px 0;
+  margin: 0;
+  border: none;
+}
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  background: var(--bg-subtle, rgba(255,255,255,0.02));
+  border: 1px solid var(--border-subtle);
+  user-select: none;
+  transition: background var(--duration);
+}
+.collapsible-header:hover {
+  background: var(--primary-subtle, rgba(0,212,255,0.06));
+}
+.collapse-icon {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  width: 12px;
+  text-align: center;
+}
+.collapse-title {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.collapsible-body {
+  padding: 8px 4px 2px;
+}
+
+/* 故障列表 */
+.fault-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fault-item {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  padding: 3px 0;
+  line-height: 1.4;
+}
+.fault-list .btn-text {
+  align-self: flex-start;
+  font-size: 0.7rem;
+  color: var(--primary);
+  padding: 2px 8px;
+  margin-top: 2px;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.fault-list .btn-text:hover {
+  text-decoration: underline;
+}
+
 /* 相似案例 */
 .similar-list {
   display: flex;
@@ -2198,6 +2441,22 @@ export default {
   background: var(--primary-subtle);
   color: var(--primary);
   border-radius: 3px;
+}
+.similar-score {
+  padding: 0 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border-radius: 4px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.similar-score.score-high {
+  color: var(--accent-green, #4ade80);
+  background: rgba(74, 222, 128, 0.1);
+}
+.similar-score.score-mid {
+  color: var(--accent-orange, #f59e0b);
+  background: rgba(255, 245, 157, 0.1);
 }
 .similar-desc {
   font-size: 0.6875rem;

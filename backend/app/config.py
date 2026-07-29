@@ -137,6 +137,7 @@ class Settings(BaseSettings):
     QWEN_MODEL: str = ""
     QWEN_TEXT_MODEL: str = ""
     QWEN_VISION_MODEL: str = "qwen3-vl-plus"
+    SAFETY_MODEL: str = "qwen-plus"
     MAX_IMAGE_UPLOAD_MB: int = 10
 
     # Ollama 本地
@@ -195,7 +196,7 @@ def _fallback_settings() -> Settings:
         "EMBEDDING_API_URL", "EMBEDDING_API_KEY",
         # ====== 队友新增：百炼 QWEN 6 个 ======
         "QWEN_API_KEY", "QWEN_API_URL", "QWEN_MODEL", "QWEN_TEXT_MODEL", "QWEN_VISION_MODEL",
-        "MAX_IMAGE_UPLOAD_MB",
+        "MAX_IMAGE_UPLOAD_MB", "SAFETY_MODEL",
     ]:
         env_v = os.getenv(fld)
         if env_v is None:

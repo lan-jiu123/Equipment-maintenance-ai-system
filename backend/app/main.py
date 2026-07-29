@@ -56,8 +56,9 @@ for _fld in ("QWEN_API_KEY", "QWEN_TEXT_MODEL", "QWEN_VISION_MODEL",
             pass
 del _settings, _fld, _env_val
 from .database import Base, engine, get_db, init_database
-from .models import User, Device, Ticket, KnowledgeReport, Case, Guide, Notification, \
+from .models import User, Device, Ticket, KnowledgeReport, Case, Guide, Notification, AIFeedback, \
     TicketAttachment, DeviceFaultAttachment, ReportAttachment, GuideExecution, \
+    FEEDBACK_STATUS_PENDING, FEEDBACK_STATUS_REVIEWED, FEEDBACK_STATUS_INCORPORATED, \
     NOTIFY_TYPE_REPORT_SUBMITTED, NOTIFY_TYPE_REPORT_APPROVED, NOTIFY_TYPE_REPORT_REJECTED, \
     NOTIFY_TYPE_REPORT_SYNCED, NOTIFY_TYPE_TICKET_ASSIGNED, NOTIFY_TYPE_TICKET_CREATED, \
     NOTIFY_TYPE_DEVICE_FAULT, NOTIFY_TYPE_SYSTEM, \
@@ -89,6 +90,7 @@ from .schemas import (
     GuideExecutionCreate, GuideExecutionUpdate, GuideExecutionInfo,
     UserCreate, UserUpdate, UserPwdChange, UserFullInfo,
     UserProfileUpdate, NotificationInfo, NotificationMarkReadReq,
+    AIFeedbackSubmit, AIFeedbackInfo, AIFeedbackReview,
 )
 from .users import ROLE_LABELS, ROLE_MANAGER, ROLE_WORKER, ROLE_SYSADMIN, verify_user as verify_user_fallback
 from .seed import seed_if_empty
@@ -810,6 +812,12 @@ def dashboard_overview(
                 KnowledgeReport,
                 KnowledgeReport.status.in_(["synced_case", "synced_guide"]),
             ),
+        },
+        "ai_feedback": {
+            "total": cnt(AIFeedback),
+            "pending": cnt(AIFeedback, AIFeedback.status == FEEDBACK_STATUS_PENDING),
+            "reviewed": cnt(AIFeedback, AIFeedback.status == FEEDBACK_STATUS_REVIEWED),
+            "incorporated": cnt(AIFeedback, AIFeedback.status == FEEDBACK_STATUS_INCORPORATED),
         },
         "timestamp": int(time.time()),
     }
@@ -2570,6 +2578,131 @@ def review_report(report_id: int, form: ReportReview,
         return ok(_to_report_info(r), "已同步入库作业指导库，全车间可见")
 
     return fail(f"未知审核操作：{action}，请使用 approve / reject / sync_case / sync_guide", 400)
+
+
+# ============================================================
+# B-3.5 AI 回答反馈与审核 API
+# ============================================================
+FEEDBACK_LABELS = {
+    FEEDBACK_STATUS_PENDING: "待审核",
+    FEEDBACK_STATUS_REVIEWED: "已查看",
+    FEEDBACK_STATUS_INCORPORATED: "已采纳",
+}
+
+
+def _to_ai_feedback_info(fb: AIFeedback) -> dict:
+    return {
+        "id": fb.id,
+        "feedback_id": fb.feedback_id,
+        "user_name": fb.user_name,
+        "question": fb.question,
+        "answer": fb.answer,
+        "rating": fb.rating,
+        "correction_text": fb.correction_text,
+        "llm_via": fb.llm_via,
+        "fault_domain": fb.fault_domain,
+        "device_model": fb.device_model,
+        "status": fb.status,
+        "status_label": FEEDBACK_LABELS.get(fb.status, fb.status),
+        "admin_remark": fb.admin_remark,
+        "created_at_ts": int(fb.created_at.timestamp()) if fb.created_at else None,
+    }
+
+
+@app.post("/api/ai/feedback", response_model=ApiResp)
+def submit_ai_feedback(
+    form: AIFeedbackSubmit,
+    db: Session = Depends(get_db),
+    current: Optional[User] = Depends(get_current_user_optional),
+):
+    """用户提交 AI 回答评分与修正。"""
+    existing = db.query(AIFeedback).filter(AIFeedback.feedback_id == form.feedback_id).first()
+    if existing:
+        return ok(_to_ai_feedback_info(existing), "反馈已存在，跳过重复提交")
+    fb = AIFeedback(
+        feedback_id=form.feedback_id,
+        user_name=current.fullname if current else "",
+        question=form.question,
+        answer=form.answer,
+        rating=form.rating,
+        correction_text=form.correction_text,
+        llm_via=form.llm_via,
+        fault_domain=form.fault_domain,
+        device_model=form.device_model,
+        status=FEEDBACK_STATUS_PENDING,
+        created_at=_utcnow(),
+    )
+    db.add(fb)
+    try:
+        db.commit()
+        db.refresh(fb)
+        return ok(_to_ai_feedback_info(fb), "反馈提交成功")
+    except Exception as e:
+        db.rollback()
+        return fail("反馈提交失败：" + str(e), 500)
+
+
+@app.get("/api/ai/feedback", response_model=ApiResp)
+def list_ai_feedback(
+    page: int = 1,
+    size: int = 20,
+    status: Optional[str] = None,
+    rating: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """管理员获取 AI 反馈列表。"""
+    require_admin(current)
+    q = db.query(AIFeedback)
+    if status:
+        q = q.filter(AIFeedback.status == status)
+    if rating:
+        q = q.filter(AIFeedback.rating == rating)
+    total = q.count()
+    items = q.order_by(AIFeedback.created_at.desc()).offset((page - 1) * size).limit(size).all()
+    return ok(page_wrap(page, size, total, [_to_ai_feedback_info(fb) for fb in items]))
+
+
+@app.get("/api/ai/feedback/stats", response_model=ApiResp)
+def ai_feedback_stats(
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """管理员获取 AI 反馈统计。"""
+    require_admin(current)
+    all_count = db.query(AIFeedback).count()
+    pending = db.query(AIFeedback).filter(AIFeedback.status == FEEDBACK_STATUS_PENDING).count()
+    reviewed = db.query(AIFeedback).filter(AIFeedback.status == FEEDBACK_STATUS_REVIEWED).count()
+    incorporated = db.query(AIFeedback).filter(AIFeedback.status == FEEDBACK_STATUS_INCORPORATED).count()
+    return ok({
+        "total": all_count,
+        "pending": pending,
+        "reviewed": reviewed,
+        "incorporated": incorporated,
+    })
+
+
+@app.put("/api/ai/feedback/{feedback_id}", response_model=ApiResp)
+def review_ai_feedback(
+    feedback_id: int,
+    form: AIFeedbackReview,
+    db: Session = Depends(get_db),
+    current: User = Depends(get_current_user),
+):
+    """管理员审核 AI 反馈：标记为已查看(reviewed)或已采纳(incorporated)。"""
+    require_admin(current)
+    fb = db.query(AIFeedback).filter(AIFeedback.id == feedback_id).first()
+    if not fb:
+        return fail("反馈记录不存在", 404)
+    if form.status not in (FEEDBACK_STATUS_REVIEWED, FEEDBACK_STATUS_INCORPORATED):
+        return fail("状态值无效，请使用 reviewed 或 incorporated", 400)
+    fb.status = form.status
+    fb.admin_remark = form.remark or fb.admin_remark
+    fb.review_time = _utcnow()
+    db.commit()
+    db.refresh(fb)
+    label = FEEDBACK_LABELS.get(form.status, form.status)
+    return ok(_to_ai_feedback_info(fb), f"已标记为「{label}」")
 
 
 # ============================================================

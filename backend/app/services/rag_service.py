@@ -29,6 +29,13 @@ SYSTEM_PROMPT = """你是设备检修知识库助手。你的回答应当以【�
 8. 严格围绕指定的设备领域进行回答，不要涉及其他领域内容。
 9. 证据与你的专业知识不一致时：在回答中同时列出两方面信息，并给出你的判断理由。
 
+输出长度要求（重要）：
+- possible_causes 最多 4 条
+- inspection_steps 最多 5 条
+- safety_warnings 最多 3 条
+- summary 控制在 100 字以内
+- citation_ids 只列实际引用的编号，无需全部列出
+
 JSON 格式：
 {
   "summary": "简明结论，包含[Sx]引用",
@@ -183,14 +190,18 @@ def answer_question(
     min_lexical_coverage: float = MIN_LEXICAL_COVERAGE,
     min_matched_terms: int = 0,
     corrections: list[dict] | None = None,
+    pre_retrieved: dict | None = None,
 ) -> dict:
-    search_result = hybrid_search(
-        question,
-        document_id=document_id,
-        device_model=device_model,
-        fault_domain=fault_domain,
-        top_k=top_k,
-    )
+    if pre_retrieved:
+        search_result = pre_retrieved
+    else:
+        search_result = hybrid_search(
+            question,
+            document_id=document_id,
+            device_model=device_model,
+            fault_domain=fault_domain,
+            top_k=top_k,
+        )
     insufficient, _ = _insufficient(
         search_result, min_lexical_coverage, min_matched_terms
     )
@@ -241,7 +252,8 @@ def answer_question(
 2. 只给作业步骤和建议，不做商业推荐。
 3. 涉及旋转/高温/高压/电气风险时必须给出安全提醒。
 4. 返回严格 JSON，不要使用 Markdown 代码围栏。
-5. 严格围绕上述设备领域进行回答，不要涉及其他领域内容。{graph_section}{corrections_section}
+5. 严格围绕上述设备领域进行回答，不要涉及其他领域内容。
+6. 输出长度限制：possible_causes 最多 4 条，inspection_steps 最多 5 条，safety_warnings 最多 3 条。{graph_section}{corrections_section}
 
 JSON 格式：
 {{

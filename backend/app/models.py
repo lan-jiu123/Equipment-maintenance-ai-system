@@ -70,6 +70,7 @@ class Device(Base):
     tag = Column(String(32), nullable=False, default="机械")  # 机械/电气/液压/仪表/安全
     location = Column(String(255), nullable=True)
     spec = Column(String(255), nullable=True)                    # 型号/规格
+    commission_date = Column(String(10), nullable=True)         # 启用日期 YYYY-MM-DD
     status = Column(String(32), nullable=False, default=DEVICE_STATUS_NORMAL, index=True)
     last_repair_at = Column(DateTime(timezone=True), nullable=True)
     fault_desc = Column(Text, nullable=True)                      # 故障描述
@@ -149,6 +150,7 @@ class KnowledgeReport(Base):
     level = Column(String(16), nullable=True)
     tag = Column(String(32), nullable=True)
     question = Column(Text, nullable=False)
+    fault = Column(Text, nullable=True)
     cause = Column(Text, nullable=True)
     solution = Column(Text, nullable=False)
     repair_process = Column(Text, nullable=True)
@@ -199,6 +201,8 @@ class Case(Base):
     level = Column(String(16), nullable=True)
     source_report_id = Column(Integer, ForeignKey("knowledge_reports.id"), nullable=True)
     contributor_name = Column(String(128), nullable=True)
+    submitter_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    submitter_role = Column(String(16), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     source_report = relationship("KnowledgeReport", back_populates="synced_case",
@@ -322,6 +326,40 @@ class GuideExecution(Base):
                          foreign_keys=[guide_id])
     user = relationship("User", back_populates="guide_executions",
                        foreign_keys=[user_id])
+
+
+# ============= AI 回答反馈表 =============
+FEEDBACK_RATING_USEFUL = "useful"
+FEEDBACK_RATING_USELESS = "useless"
+FEEDBACK_RATING_CORRECTED = "corrected"
+
+FEEDBACK_STATUS_PENDING = "pending"
+FEEDBACK_STATUS_REVIEWED = "reviewed"
+FEEDBACK_STATUS_INCORPORATED = "incorporated"
+
+
+class AIFeedback(Base):
+    """用户对 AI 回答的评分与修正反馈，用于持续优化系统适配性。"""
+    __tablename__ = "ai_feedback"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    feedback_id = Column(String(64), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user_name = Column(String(128), nullable=True)
+    question = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    rating = Column(String(16), nullable=False, default=FEEDBACK_RATING_USEFUL, index=True)
+    correction_text = Column(Text, nullable=True)
+    llm_via = Column(String(32), nullable=True)
+    fault_domain = Column(String(32), nullable=True)
+    device_model = Column(String(64), nullable=True)
+    citations_info = Column(Text, nullable=True)  # JSON 存储引用信息
+    status = Column(String(16), nullable=False, default=FEEDBACK_STATUS_PENDING, index=True)
+    admin_remark = Column(Text, nullable=True)
+    review_time = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class ReportAttachment(Base):

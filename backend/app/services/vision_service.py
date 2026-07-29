@@ -92,17 +92,55 @@ VISION_SYSTEM_PROMPT = """你是设备检修图片分析助手。只描述图片
 6. confidence 必须为 0 到 1 的数字。整机/远景图 confidence 一般不超过 0.5。"""
 
 
+def _fix_json(raw: str) -> str:
+    """尝试修复常见的 JSON 格式问题。"""
+    text = raw.strip()
+    # 1. 提取 ```json ... ``` 代码块
+    code_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
+    if code_match:
+        text = code_match.group(1).strip()
+    # 2. 提取最外层 {}（含嵌套）
+    brace_match = JSON_RE.search(text)
+    if not brace_match:
+        return raw  # 无法修复，返回原文
+    text = brace_match.group(0)
+    # 3. 修复常见问题
+    text = re.sub(r",\s*}", "}", text)         # 去掉尾逗号
+    text = re.sub(r",\s*]", "]", text)         # 去掉数组尾逗号
+    text = re.sub(r"(?<=[:,\[])\s*'([^']+?)'\s*(?=[,:\}\]])", r'"\1"', text)  # 单引号→双引号
+    text = re.sub(r"(?<=[:,\[])\s*None\s*(?=[,:\}\]])", "null", text)  # None→null
+    text = re.sub(r"(?<=[:,\[])\s*True\s*(?=[,:\}\]])", "true", text)
+    text = re.sub(r"(?<=[:,\[])\s*False\s*(?=[,:\}\]])", "false", text)
+    return text
+
+
 def _parse_json(text: str) -> dict[str, Any]:
-    match = JSON_RE.search(text or "")
-    if not match:
-        raise LLMServiceError("视觉模型未返回有效 JSON")
+    raw = (text or "").strip()
+    if not raw:
+        raise LLMServiceError("视觉模型返回为空")
+
+    # 尝试修复 + 解析
+    fixed = _fix_json(raw)
     try:
-        value = json.loads(match.group(0))
-    except json.JSONDecodeError as exc:
-        raise LLMServiceError("视觉模型返回的 JSON 无法解析") from exc
-    if not isinstance(value, dict):
-        raise LLMServiceError("视觉模型返回结构异常")
-    return value
+        value = json.loads(fixed)
+        if isinstance(value, dict):
+            return value
+    except json.JSONDecodeError:
+        pass
+
+    # 如果修复后仍失败，尝试逐行拼接法（应对截断情况）
+    lines = raw.split("\n")
+    for pivot in range(len(lines), 0, -1):
+        partial = "\n".join(lines[:pivot])
+        partial_fixed = _fix_json(partial)
+        try:
+            value = json.loads(partial_fixed)
+            if isinstance(value, dict):
+                return value
+        except json.JSONDecodeError:
+            continue
+
+    raise LLMServiceError("视觉模型返回的 JSON 无法解析")
 
 
 def _clean_list(value: Any) -> list[str]:

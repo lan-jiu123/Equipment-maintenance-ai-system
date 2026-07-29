@@ -76,15 +76,17 @@ class LLMService:
     def channel(self) -> str:
         return "openai-sdk" if self._sdk_available else "requests-fallback"
 
-    def chat(self, system_prompt: str, user_prompt: str) -> Tuple[str, str]:
+    def chat(self, system_prompt: str, user_prompt: str, model: str | None = None) -> Tuple[str, str]:
         """
         返回 (回答文本, 通道标识)
         通道标识用于响应体里告诉评委用的哪条路径
+        model: 可选模型覆盖，不传则使用 self.model
         """
+        actual_model = model or self.model
         if self._sdk_available and self._sdk_client is not None:
             try:
                 resp = self._sdk_client.chat.completions.create(
-                    model=self.model,
+                    model=actual_model,
                     temperature=self.temperature,
                     messages=[
                         {"role": "system", "content": system_prompt},
@@ -102,12 +104,12 @@ class LLMService:
                     ) from sdk_err
                 # SDK 失败 -> 自动退到 requests（避免单点故障）
                 try:
-                    return self._chat_via_requests(system_prompt, user_prompt), f"requests(sdk-fallback:{type(sdk_err).__name__})"
+                    return self._chat_via_requests(system_prompt, user_prompt, model), f"requests(sdk-fallback:{type(sdk_err).__name__})"
                 except Exception as req_err:
                     raise RuntimeError(
                         f"LLM 双通道均失败。SDK错误=({sdk_err})；requests错误=({req_err})"
                     )
-        return self._chat_via_requests(system_prompt, user_prompt), "requests"
+        return self._chat_via_requests(system_prompt, user_prompt, model), "requests"
 
     def healthcheck(self) -> dict:
         result = {"backend": self.backend, "channel": self.channel, "reachable": False, "model": self.model}
@@ -123,14 +125,15 @@ class LLMService:
         return result
 
     # -------- 内部实现 --------
-    def _chat_via_requests(self, system_prompt: str, user_prompt: str) -> str:
+    def _chat_via_requests(self, system_prompt: str, user_prompt: str, model: str | None = None) -> str:
+        actual_model = model or self.model
         url = f"{self.base_url}/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
         payload = {
-            "model": self.model,
+            "model": actual_model,
             "temperature": self.temperature,
             "messages": [
                 {"role": "system", "content": system_prompt},

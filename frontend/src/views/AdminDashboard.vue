@@ -92,10 +92,10 @@
           <span class="quick-icon">📝</span>
           <span class="quick-body">
             <span class="quick-row">
-              <span class="quick-label">报告/指导审核</span>
+              <span class="quick-label">知识审核中心</span>
               <span class="quick-cta">进入审核 →</span>
             </span>
-            <span class="quick-desc">审核员工提交的实践方案，入库知识库</span>
+            <span class="quick-desc">审核知识报告与 AI 回答修正，入库知识库</span>
           </span>
         </button>
         <router-link to="/search" class="quick-card card" data-color="violet">
@@ -245,15 +245,28 @@
       </div>
     </section>
 
-    <!-- 报告/指导审核面板 -->
+    <!-- 知识审核中心 -->
     <section ref="knowledgePanel" class="knowledge-panel" v-if="activeMainTab === 'knowledge'">
+      <!-- 子导航：知识报告 / AI回答优化 -->
+      <div class="kr-sub-nav card">
+        <button
+          class="pill-btn"
+          :class="{ active: activeKrSubTab === 'report' }"
+          @click="activeKrSubTab = 'report'"
+        >📑 知识报告</button>
+        <button
+          class="pill-btn"
+          :class="{ active: activeKrSubTab === 'ai_feedback' }"
+          @click="switchToAiTab"
+        >🤖 AI回答优化<span v-if="aiFeedbackPending > 0" class="pill-num">{{ aiFeedbackPending }}</span></button>
+      </div>
       <div class="knowledge-layout">
-        <!-- 报告列表 -->
-        <div class="kr-list card">
+        <!-- ===== 知识报告列表 ===== -->
+        <div v-show="activeKrSubTab === 'report'" class="kr-list card">
           <div class="section-header">
             <h2 class="section-title">
               <span class="title-icon">📑</span>
-              报告列表
+              知识报告
             </h2>
             <div class="section-actions">
               <button
@@ -298,7 +311,7 @@
                 </div>
                 <div class="kli-foot">
                   <span class="kli-type" :class="'type-' + r.type">
-                    {{ r.type === 'case' ? '📚 案例库' : r.type === 'guide' ? '📖 作业指导' : '📋 未分类' }}
+                    {{ r.type === 'case' ? '📚 案例知识沉淀' : r.type === 'guide' ? '📖 标准作业知识' : '📋 未分类' }}
                   </span>
                   <span class="kli-time">{{ formatTime(r.submit_time_ts) }}</span>
                 </div>
@@ -307,6 +320,64 @@
                 <div class="ke-icon">🎉</div>
                 <div class="ke-title">没有{{ activeKrTab === 'pending' ? '待审核' : '' }}报告</div>
                 <div class="ke-desc" v-if="activeKrTab === 'pending'">当前所有知识报告已处理完毕</div>
+                <div class="ke-desc" v-else>切换到其他标签页查看更多</div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- ===== AI回答优化列表 ===== -->
+        <div v-show="activeKrSubTab === 'ai_feedback'" class="kr-list card">
+          <div class="section-header">
+            <h2 class="section-title">
+              <span class="title-icon">🤖</span>
+              AI回答优化
+            </h2>
+            <div class="section-actions">
+              <button
+                v-for="t in aiTabs"
+                :key="t.key"
+                class="pill-btn"
+                :class="{ active: activeAiTab === t.key }"
+                @click="activeAiTab = t.key; loadAllAIFeedbacks(true)"
+              >{{ t.label }}<span class="pill-num">{{ t.count }}</span></button>
+              <button class="pill-btn" @click="loadAllAIFeedbacks(true)" style="margin-left:4px;">刷新 ↻</button>
+            </div>
+          </div>
+          <div class="kr-list-body">
+            <div v-if="aiFeedbackLoading" style="padding:12px 0;">
+              <div class="skeleton-wrap" style="display:flex;flex-direction:column;gap:16px;">
+                <div v-for="i in 4" :key="i" style="padding:14px 16px;border-radius:8px;border:1px solid var(--border-subtle);">
+                  <div style="display:block;height:16px;width:65%;border-radius:6px;margin-bottom:8px;background:linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(148,163,184,0.08) 50%,rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></div>
+                  <div style="display:block;height:12px;width:40%;border-radius:6px;background:linear-gradient(90deg,rgba(255,255,255,0.03) 0%,rgba(148,163,184,0.08) 50%,rgba(255,255,255,0.03) 100%);background-size:200% 100%;animation:skeleton-shine 1.4s ease-in-out infinite;"></div>
+                </div>
+              </div>
+            </div>
+            <template v-else>
+              <div
+                v-for="fb in filteredAIFeedbacks"
+                :key="fb.id"
+                class="kr-list-item"
+                :class="{ active: selectedAiFeedback && selectedAiFeedback.id === fb.id, pending: fb.status === 'pending' }"
+                @click="selectAIFeedback(fb)"
+              >
+                <div class="kli-head">
+                  <div class="kli-title">{{ fb.question ? fb.question.slice(0, 60) + (fb.question.length > 60 ? '…' : '') : '（无问题）' }}</div>
+                  <span class="cr-status" :class="'st-' + fb.status">{{ fb.status_label }}</span>
+                </div>
+                <div class="kli-meta">
+                  <span class="kli-source">{{ { useful: '👍 有用', useless: '👎 没用', corrected: '✏️ 修正' }[fb.rating] || fb.rating }}</span>
+                  <span class="kli-user">🧑 {{ fb.user_name || '匿名' }}</span>
+                  <span class="kli-device" v-if="fb.correction_text">✏️ {{ fb.correction_text.slice(0, 30) }}{{ fb.correction_text.length > 30 ? '…' : '' }}</span>
+                </div>
+                <div class="kli-foot">
+                  <span class="kli-time">{{ formatTime(fb.created_at_ts) }}</span>
+                </div>
+              </div>
+              <div v-if="filteredAIFeedbacks.length === 0" class="kr-empty">
+                <div class="ke-icon">🎉</div>
+                <div class="ke-title">没有{{ activeAiTab === 'pending' ? '待处理' : '' }}AI反馈</div>
+                <div class="ke-desc" v-if="activeAiTab === 'pending'">当前所有AI回答修正已处理完毕</div>
                 <div class="ke-desc" v-else>切换到其他标签页查看更多</div>
               </div>
             </template>
@@ -486,20 +557,22 @@
       <div class="modal-card card report-modal-card" @click.stop>
         <div class="modal-head report-modal-head">
           <div>
-            <h3 class="report-modal-title">{{ selectedReport.title }}</h3>
+            <h3 class="report-modal-title">{{ selectedReport._itemType === 'ai_feedback' ? '🤖 AI回答修正' : selectedReport.title }}</h3>
             <div class="report-modal-sub">
               <span class="cr-status" :class="'st-' + selectedReport.status">{{ selectedReport.status_label || statusLabel(selectedReport.status) }}</span>
               <span>{{ selectedReport.submitter_name || '未知用户' }} · {{ formatTime(selectedReport.submit_time_ts) }}</span>
-              <span v-if="selectedReport.review_time_ts && selectedReport.submit_time_ts !== selectedReport.review_time_ts">
+              <span v-if="selectedReport._itemType !== 'ai_feedback' && selectedReport.review_time_ts">
                 · 审核于 {{ formatTime(selectedReport.review_time_ts) }}
               </span>
-              <span v-if="selectedReport.reviewer_name"> · 审核人：{{ selectedReport.reviewer_name }}</span>
+              <span v-if="selectedReport._itemType !== 'ai_feedback' && selectedReport.reviewer_name"> · 审核人：{{ selectedReport.reviewer_name }}</span>
             </div>
           </div>
           <button class="modal-close" @click="selectedReport = null" type="button">✕</button>
         </div>
         <div class="modal-body report-modal-body">
-          <div class="kr-detail-body">
+
+          <!-- ===== 知识报告详情 ===== -->
+          <div v-if="selectedReport._itemType !== 'ai_feedback'" class="kr-detail-body">
             <div class="kr-field">
               <div class="kr-field-label">设备类型</div>
               <div class="kr-field-value"><span class="kli-type">{{ selectedReport.tag || '机械' }}</span></div>
@@ -548,7 +621,7 @@
               <div class="kr-field-label">建议入库</div>
               <div class="kr-field-value">
                 <span class="kli-type" :class="'type-' + selectedReport.type">
-                  {{ selectedReport.type === 'case' ? '📚 案例库' : selectedReport.type === 'guide' ? '📖 作业指导' : '📋 未分类（管理员决定）' }}
+                  {{ selectedReport.type === 'case' ? '📚 案例知识沉淀' : selectedReport.type === 'guide' ? '📖 标准作业知识' : '📋 未分类（管理员决定）' }}
                 </span>
               </div>
             </div>
@@ -567,7 +640,33 @@
             </div>
           </div>
 
-          <!-- 审核操作：仅待审核 -->
+          <!-- ===== AI回答优化详情 ===== -->
+          <div v-if="selectedReport._itemType === 'ai_feedback'" class="kr-detail-body">
+            <div class="kr-field">
+              <div class="kr-field-label">❓ 用户问题</div>
+              <div class="kr-field-value kr-text">{{ selectedReport.question || '—' }}</div>
+            </div>
+            <div class="kr-field">
+              <div class="kr-field-label">🤖 AI 原始回答</div>
+              <div class="kr-field-value kr-text answer">{{ selectedReport.answer || '—' }}</div>
+            </div>
+            <div class="kr-field" v-if="selectedReport.correction_text">
+              <div class="kr-field-label">✏️ 修正内容</div>
+              <div class="kr-field-value kr-text correction">{{ selectedReport.correction_text }}</div>
+            </div>
+            <div class="kr-field">
+              <div class="kr-field-label">⭐ 用户评分</div>
+              <div class="kr-field-value">
+                {{ { useful: '👍 有用', useless: '👎 没用', corrected: '✏️ 修正' }[selectedReport.rating] || selectedReport.rating }}
+              </div>
+            </div>
+            <div class="kr-field" v-if="selectedReport.admin_remark">
+              <div class="kr-field-label">审核备注</div>
+              <div class="kr-field-value kr-text">{{ selectedReport.admin_remark }}</div>
+            </div>
+          </div>
+
+          <!-- ===== 审核操作：仅待审核 ===== -->
           <div v-if="selectedReport.status === 'pending'" class="kr-review">
             <div class="kr-review-head">
               <h4 class="kr-review-title">📋 审核操作</h4>
@@ -585,40 +684,77 @@
                 >{{ tp.icon }} {{ tp.label }}</button>
               </div>
             </div>
-            <div class="kr-review-field">
-              <div class="kr-field-label">审核备注<span class="req" v-if="reviewForm.action === 'reject'">*</span></div>
-              <textarea
-                v-model="reviewForm.remark"
-                class="kr-textarea"
-                rows="3"
-                :disabled="reviewLoading"
-                :placeholder="reviewForm.action === 'reject' ? '请务必告知驳回原因，帮助提交人改进方案...' : '（可选）补充入库说明或对方案的完善建议...'"
-              ></textarea>
-            </div>
-            <div class="kr-review-actions">
-              <button
-                class="btn btn-danger"
-                :disabled="reviewLoading"
-                @click="doReview('reject')"
-              >🚫 驳回（附原因）</button>
-              <div class="kr-approve-group">
-                <button
-                  class="btn btn-primary"
+
+            <!-- AI回答优化审核 -->
+            <template v-if="reviewForm.type === 'ai_feedback'">
+              <div class="kr-review-field">
+                <div class="kr-field-label">审核备注</div>
+                <textarea
+                  v-model="reviewForm.remark"
+                  class="kr-textarea"
+                  rows="3"
                   :disabled="reviewLoading"
-                  @click="doReview('approve')"
-                >✓ 仅审核通过</button>
-                <button
-                  class="btn btn-success"
-                  :disabled="reviewLoading"
-                  @click="doReview(reviewForm.type === 'guide' ? 'sync_guide' : 'sync_case')"
-                >📚 通过并直接入库</button>
+                  placeholder="（可选）备注处理意见..."
+                ></textarea>
               </div>
-            </div>
+              <div class="kr-review-actions">
+                <button
+                  class="btn btn-danger"
+                  :disabled="reviewLoading"
+                  @click="doAiReview('reject')"
+                >🚫 驳回</button>
+                <div class="kr-approve-group">
+                  <button
+                    class="btn btn-primary"
+                    :disabled="reviewLoading"
+                    @click="doAiReview('reviewed')"
+                  >👁️ 标记已审</button>
+                  <button
+                    class="btn btn-success"
+                    :disabled="reviewLoading"
+                    @click="doAiReview('incorporated')"
+                  >✨ 采纳优化</button>
+                </div>
+              </div>
+            </template>
+
+            <!-- 知识报告审核 -->
+            <template v-else>
+              <div class="kr-review-field">
+                <div class="kr-field-label">审核备注<span class="req" v-if="reviewForm.action === 'reject'">*</span></div>
+                <textarea
+                  v-model="reviewForm.remark"
+                  class="kr-textarea"
+                  rows="3"
+                  :disabled="reviewLoading"
+                  :placeholder="reviewForm.action === 'reject' ? '请务必告知驳回原因，帮助提交人改进方案...' : '（可选）补充入库说明或对方案的完善建议...'"
+                ></textarea>
+              </div>
+              <div class="kr-review-actions">
+                <button
+                  class="btn btn-danger"
+                  :disabled="reviewLoading"
+                  @click="doReview('reject')"
+                >🚫 驳回（附原因）</button>
+                <div class="kr-approve-group">
+                  <button
+                    class="btn btn-primary"
+                    :disabled="reviewLoading"
+                    @click="doReview('approve')"
+                  >✓ 仅审核通过</button>
+                  <button
+                    class="btn btn-success"
+                    :disabled="reviewLoading"
+                    @click="doReview(reviewForm.type === 'guide' ? 'sync_guide' : 'sync_case')"
+                  >📚 通过并直接入库</button>
+                </div>
+              </div>
+            </template>
             <div v-if="krTip" class="kr-tip" :class="{ ok: krTip.ok }">{{ krTip.text }}</div>
           </div>
 
-          <!-- 已审核通过：操作同步入库 -->
-          <div v-else-if="selectedReport.status === 'approved'" class="kr-review">
+          <!-- 已审核通过：操作同步入库（仅知识报告） -->
+          <div v-if="selectedReport._itemType !== 'ai_feedback' && selectedReport.status === 'approved'" class="kr-review">
             <div class="kr-review-head">
               <h4 class="kr-review-title">📂 入库操作</h4>
               <span class="kr-approval-info">已审核通过 · 审核人：{{ selectedReport.reviewer_name || '管理员' }}</span>
@@ -631,13 +767,13 @@
                   :class="{ active: reviewForm.type === 'case' }"
                   @click="reviewForm.type = 'case'"
                   :disabled="reviewLoading"
-                >📚 案例库</button>
+                >📚 案例知识沉淀</button>
                 <button
                   class="type-pick-btn"
                   :class="{ active: reviewForm.type === 'guide' }"
                   @click="reviewForm.type = 'guide'"
                   :disabled="reviewLoading"
-                >📖 作业指导</button>
+                >📖 标准作业知识</button>
               </div>
             </div>
             <div class="kr-review-actions">
@@ -648,29 +784,54 @@
             <div v-if="krTip" class="kr-tip" :class="{ ok: krTip.ok }">{{ krTip.text }}</div>
           </div>
 
-          <!-- 其他状态：信息展示 -->
-          <div v-else class="kr-synced-info">
+          <!-- 其他状态：知识报告信息展示 -->
+          <div v-if="selectedReport._itemType !== 'ai_feedback'" class="kr-synced-info">
             <div v-if="selectedReport.status === 'synced_case'" class="krs-card synced-case">
               <div class="krs-icon">📚</div>
               <div class="krs-body">
-                <div class="krs-title">已同步到案例库</div>
-                <div class="krs-desc">可在「案例库」中查看此方案</div>
+                <div class="krs-title">已同步到案例知识沉淀</div>
+                <div class="krs-desc">可在「案例知识沉淀」中查看此方案</div>
               </div>
-              <router-link to="/case" class="btn btn-primary btn-sm">查看案例库 →</router-link>
+              <router-link to="/case" class="btn btn-primary btn-sm">查看案例知识沉淀 →</router-link>
             </div>
             <div v-else-if="selectedReport.status === 'synced_guide'" class="krs-card synced-guide">
               <div class="krs-icon">📖</div>
               <div class="krs-body">
-                <div class="krs-title">已同步到作业指导</div>
-                <div class="krs-desc">可在「作业指导」中查看此标准作业流程</div>
+                <div class="krs-title">已同步到标准作业知识</div>
+                <div class="krs-desc">可在「标准作业知识」中查看此标准流程</div>
               </div>
-              <router-link to="/guide" class="btn btn-primary btn-sm">查看作业指导 →</router-link>
+              <router-link to="/guide" class="btn btn-primary btn-sm">查看标准作业知识 →</router-link>
             </div>
             <div v-else-if="selectedReport.status === 'rejected'" class="krs-card synced-reject">
               <div class="krs-icon">🚫</div>
               <div class="krs-body">
                 <div class="krs-title">报告已驳回</div>
                 <div class="krs-desc">已通知提交人根据原因进行修改后可再次提交</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI回答优化已处理状态 -->
+          <div v-if="selectedReport._itemType === 'ai_feedback'" class="kr-synced-info">
+            <div v-if="selectedReport.status === 'reviewed'" class="krs-card synced-case">
+              <div class="krs-icon">👁️</div>
+              <div class="krs-body">
+                <div class="krs-title">已查阅（未采纳）</div>
+                <div class="krs-desc">该修正内容已查阅，暂未采纳到优化流程</div>
+              </div>
+            </div>
+            <div v-else-if="selectedReport.status === 'incorporated'" class="krs-card synced-guide">
+              <div class="krs-icon">✨</div>
+              <div class="krs-body">
+                <div class="krs-title">已采纳优化</div>
+                <div class="krs-desc">该修正内容已被采纳，将用于后续AI回答优化</div>
+              </div>
+            </div>
+            <div v-else-if="selectedReport.status === 'rejected'" class="krs-card synced-reject">
+              <div class="krs-icon">🚫</div>
+              <div class="krs-body">
+                <div class="krs-title">已驳回</div>
+                <div class="krs-desc">该修正内容未通过审核</div>
               </div>
             </div>
           </div>
@@ -689,7 +850,8 @@ import { getUser } from '../utils/auth'
 import {
   listTicketsApi, assignTicketApi, createTicketApi, deleteTicketApi,
   listReportsApi, reviewReportApi, fetchReportAttachmentApi,
-  listUsersApi, userOptionsApi, listDevicesApi
+  listUsersApi, userOptionsApi, listDevicesApi,
+  listAIFeedbackApi, reviewAIFeedbackApi, getAIFeedbackStatsApi
 } from '../utils/api'
 import { toast as _toast } from '../utils/request'
 
@@ -838,10 +1000,14 @@ export default {
       previewOpen: false,
       previewTicket: null,
       activeKrTab: 'pending',
+      activeKrSubTab: 'report',
       selectedReport: null,
       reviewForm: { type: 'case', remark: '', action: '' },
       reviewLoading: false,
       krTip: { ok: true, text: '' },
+      allAIFeedbacks: [],
+      aiFeedbackLoading: false,
+      activeAiTab: 'pending',
       toast: ''
     }
   },
@@ -923,7 +1089,9 @@ export default {
       return core
     },
     pendingReports() {
-      return this.allReports.filter(r => r.status === 'pending').length
+      const reportPending = this.allReports.filter(r => r.status === 'pending').length
+      const aiPending = this.aiFeedbackPending
+      return reportPending + aiPending
     },
     krStats() {
       const all = this.allReports
@@ -939,7 +1107,7 @@ export default {
       return [
         { key: 'order', label: '工单列表', icon: '📋', count: this.totalOrders, badgeCls: '' },
         { key: 'team', label: '团队负载', icon: '👥', count: 0, badgeCls: '' },
-        { key: 'knowledge', label: '报告/指导审核', icon: '📝', count: this.pendingReports, badgeCls: 'orange' }
+        { key: 'knowledge', label: '知识审核中心', icon: '📝', count: this.pendingReports, badgeCls: 'orange' }
       ]
     },
     krTabs() {
@@ -958,10 +1126,41 @@ export default {
       return this.allReports.filter(r => r.status === t)
     },
     krTypes() {
-      return [
-        { key: 'case', label: '案例库', icon: '📚' },
-        { key: 'guide', label: '作业指导', icon: '📖' }
+      const types = [
+        { key: 'case', label: '案例知识沉淀', icon: '📚' },
+        { key: 'guide', label: '标准作业知识', icon: '📖' }
       ]
+      // 当选中 AI 反馈项时，显示 AI 回答优化选项
+      if (this.selectedReport && this.selectedReport._itemType === 'ai_feedback') {
+        types.push({ key: 'ai_feedback', label: 'AI回答优化', icon: '🤖' })
+      }
+      return types
+    },
+    // ---- AI 反馈相关 ----
+    aiFeedbackStats() {
+      const all = this.allAIFeedbacks
+      return {
+        total: all.length,
+        pending: all.filter(fb => fb.status === 'pending').length,
+        reviewed: all.filter(fb => fb.status === 'reviewed').length,
+        incorporated: all.filter(fb => fb.status === 'incorporated').length
+      }
+    },
+    aiFeedbackPending() {
+      return this.aiFeedbackStats.pending
+    },
+    aiTabs() {
+      return [
+        { key: 'pending', label: '待处理', count: this.aiFeedbackStats.pending },
+        { key: 'reviewed', label: '已审', count: this.aiFeedbackStats.reviewed },
+        { key: 'incorporated', label: '已采纳', count: this.aiFeedbackStats.incorporated },
+        { key: 'all', label: '全部', count: this.aiFeedbackStats.total }
+      ]
+    },
+    filteredAIFeedbacks() {
+      const t = this.activeAiTab
+      if (t === 'all') return this.allAIFeedbacks
+      return this.allAIFeedbacks.filter(fb => fb.status === t)
     }
   },
   watch: {
@@ -973,7 +1172,8 @@ export default {
       await Promise.all([
         this.loadAllTickets(),
         this.loadAllUsers(),
-        this.loadAllReports()
+        this.loadAllReports(),
+        this.loadAllAIFeedbacks()
       ])
     } finally {
       this._hydrating = false
@@ -1024,6 +1224,10 @@ export default {
       const kr = (q.kr || '').toString()
       if (kr && ['all', 'pending', 'approved', 'synced', 'rejected'].indexOf(kr) >= 0) {
         this.activeKrTab = kr
+      }
+      if (q.sub === 'ai_feedback') {
+        this.activeKrSubTab = 'ai_feedback'
+        this.switchToAiTab()
       }
       if (!this._hydrating && q.action === 'create' && q.device) {
         const routeKey = this.$route.fullPath
@@ -1142,7 +1346,7 @@ export default {
       }
     },
     selectReport(r) {
-      this.selectedReport = Object.assign({}, r)
+      this.selectedReport = Object.assign({}, r, { _itemType: 'report' })
       this.reviewForm = {
         type: (r.type && (r.type === 'case' || r.type === 'guide')) ? r.type : 'case',
         remark: '',
@@ -1184,8 +1388,8 @@ export default {
         await reviewReportApi(rid, action, this.reviewForm.remark || '')
         this.showKrTip(
           action === 'reject' ? '✓ 报告已驳回并通知提交人' :
-          action === 'sync_case' ? '✓ 报告已通过并同步入库案例库' :
-          action === 'sync_guide' ? '✓ 报告已通过并同步入库作业指导' :
+          action === 'sync_case' ? '✓ 报告已通过并同步入库案例知识沉淀' :
+          action === 'sync_guide' ? '✓ 报告已通过并同步入库标准作业知识' :
           '✓ 报告已审核通过，可后续同步入库',
           true
         )
@@ -1206,7 +1410,7 @@ export default {
       const action = this.reviewForm.type === 'guide' ? 'sync_guide' : 'sync_case'
       try {
         await reviewReportApi(rid, action, this.reviewForm.remark || '')
-        this.showKrTip('✓ 已同步到' + (this.reviewForm.type === 'guide' ? '作业指导' : '案例库'), true)
+        this.showKrTip('✓ 已同步到' + (this.reviewForm.type === 'guide' ? '标准作业知识' : '案例知识沉淀'), true)
         await this.loadAllReports()
         const updated = this.allReports.find(r => r.id === rid)
         if (updated) this.selectReport(updated)
@@ -1214,6 +1418,80 @@ export default {
         this.showKrTip('❌ 同步失败：' + (e.message || '未知错误'), false)
       } finally {
         this.reviewLoading = false
+      }
+    },
+    // ========== AI 回答优化 ==========
+    async loadAllAIFeedbacks(force = false) {
+      this.aiFeedbackLoading = true
+      try {
+        const p = await listAIFeedbackApi({ page: 1, size: 2000 }) || {}
+        const items = p.items || []
+        this.allAIFeedbacks = items.map(fb => ({
+          _itemType: 'ai_feedback',
+          id: fb.id,
+          feedback_id: fb.feedback_id,
+          question: fb.question,
+          answer: fb.answer,
+          rating: fb.rating,
+          correction_text: fb.correction_text,
+          user_name: fb.user_name,
+          status: fb.status,
+          status_label: fb.status_label,
+          admin_remark: fb.admin_remark,
+          submitter_name: fb.user_name || '匿名',
+          submit_time_ts: fb.created_at_ts,
+          created_at_ts: fb.created_at_ts
+        }))
+      } catch (e) {
+        if (force || this.allAIFeedbacks.length === 0) {
+          _toast('AI反馈加载失败：' + (e.message || '网络异常'), 'error')
+        }
+      } finally {
+        this.aiFeedbackLoading = false
+      }
+    },
+    selectAIFeedback(fb) {
+      this.selectedReport = Object.assign({}, fb, { _itemType: 'ai_feedback' })
+      this.reviewForm = {
+        type: 'ai_feedback',
+        remark: '',
+        action: ''
+      }
+      this.krTip = { ok: true, text: '' }
+    },
+    async doAiReview(action) {
+      if (!this.selectedReport || !this.selectedReport.id) return
+      if (action === 'reject' && !this.reviewForm.remark.trim()) {
+        this.showKrTip('❌ 请填写驳回原因', false)
+        return
+      }
+      this.reviewLoading = true
+      const fid = this.selectedReport.id
+      try {
+        const statusMap = { 'reject': 'reviewed', 'reviewed': 'reviewed', 'incorporated': 'incorporated' }
+        const targetStatus = statusMap[action] || 'reviewed'
+        await reviewAIFeedbackApi(fid, targetStatus, this.reviewForm.remark || '')
+        this.showKrTip(
+          action === 'incorporated' ? '✨ 已采纳优化' :
+          action === 'reject' ? '🚫 已驳回' :
+          '👁️ 已标记已审',
+          true
+        )
+        await this.loadAllAIFeedbacks(true)
+        const updated = this.allAIFeedbacks.find(fb => fb.id === fid)
+        if (updated) this.selectAIFeedback(updated)
+        else this.selectedReport = null
+      } catch (e) {
+        this.showKrTip('❌ 操作失败：' + (e.message || '未知错误'), false)
+      } finally {
+        this.reviewLoading = false
+      }
+    },
+    switchToAiTab() {
+      this.activeKrSubTab = 'ai_feedback'
+      this.selectedReport = null
+      if (this.allAIFeedbacks.length === 0) {
+        this.loadAllAIFeedbacks()
       }
     },
     updateTime() {
@@ -1345,6 +1623,7 @@ export default {
     },
     goToReviewPending() {
       this.activeMainTab = 'knowledge'
+      this.activeKrSubTab = 'report'
       this.activeKrTab = 'pending'
       this.selectedReport = null
       this.$nextTick(() => {
@@ -1786,8 +2065,17 @@ export default {
   border: 1px solid rgba(255,165,2,0.3);
 }
 
-/* === 报告/指导审核面板 === */
+/* === 知识审核中心 === */
 .knowledge-panel { display: flex; flex-direction: column; gap: 20px; }
+.kr-sub-nav {
+  display: flex; gap: 8px; padding: 12px 16px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius);
+}
+.kr-sub-nav .pill-btn {
+  flex: 1;
+  justify-content: center;
+}
 
 .knowledge-layout {
   display: grid;

@@ -120,6 +120,7 @@ class DeviceCreate(BaseModel):
     tag: str = Field(default="机械", description="大类：机械/电气/液压/仪表/安全")
     location: Optional[str] = Field(default=None, max_length=255)
     status: str = Field(default="normal", description="normal/repairing/down")
+    commission_date: Optional[str] = Field(default=None, max_length=10, description="启用日期 YYYY-MM-DD")
 
 
 class DeviceUpdate(BaseModel):
@@ -127,6 +128,7 @@ class DeviceUpdate(BaseModel):
     tag: Optional[str] = Field(default=None)
     location: Optional[str] = Field(default=None, max_length=255)
     status: Optional[str] = Field(default=None, description="normal/repairing/down")
+    commission_date: Optional[str] = Field(default=None, max_length=10, description="启用日期 YYYY-MM-DD")
 
 
 class DeviceInfo(BaseModel):
@@ -138,6 +140,7 @@ class DeviceInfo(BaseModel):
     status: str
     status_label: str
     health: int = 100
+    commission_date: Optional[str] = None
     last_repair_at: Optional[datetime] = None
     created_at_ts: Optional[int] = None
     # 故障停机时返回的故障上报信息
@@ -199,6 +202,7 @@ class ReportCreate(BaseModel):
     level: Optional[str] = Field(default="mid")
     tag: Optional[str] = Field(default=None)
     question: str = Field(..., min_length=5)
+    fault: Optional[str] = Field(default=None, description="故障描述")
     cause: Optional[str] = None
     solution: str = Field(..., min_length=5)
     repair_process: Optional[str] = Field(default=None, description="维修过程")
@@ -223,12 +227,14 @@ class ReportInfo(BaseModel):
     level: Optional[str] = None
     tag: Optional[str] = None
     question: Optional[str] = None
+    fault: Optional[str] = None
     cause: Optional[str] = None
     solution: Optional[str] = None
     repair_process: Optional[str] = None
     technical_measures: Optional[str] = None
     repair_result: Optional[str] = None
     summary: Optional[str] = None
+    ticket_id: Optional[str] = None
     status: str
     status_label: str
     submitter_id: int
@@ -254,6 +260,9 @@ class CaseInfo(BaseModel):
     level: Optional[str] = None
     contributor_name: Optional[str] = None
     is_employee_contribution: bool
+    source_report_id: Optional[int] = None
+    submitter_id: Optional[int] = None
+    submitter_role: Optional[str] = None
     created_at_ts: Optional[int] = None
 
 
@@ -368,6 +377,7 @@ class UserFullInfo(BaseModel):
     role_label: str
     avatar_preset: Optional[str] = None
     created_at_ts: Optional[int] = None
+    join_date: Optional[str] = None
     ticket_stats: dict = Field(default_factory=dict)
 
 
@@ -384,3 +394,39 @@ class NotificationInfo(BaseModel):
 
 class NotificationMarkReadReq(BaseModel):
     ids: Optional[list[int]] = Field(default=None, description="要标记为已读的通知ID；为空则全部标记为已读")
+
+
+# ============ 10. AI 反馈 ============
+class AIFeedbackSubmit(BaseModel):
+    """用户提交对 AI 回答的评分与修正。"""
+    feedback_id: str = Field(..., min_length=8, max_length=64, description="前端生成的唯⼀反馈 ID")
+    question: str = Field(..., min_length=1, description="用户问题")
+    answer: str = Field(..., min_length=1, description="AI 原始回答")
+    rating: str = Field(default="useful", description="评分：useful / useless / corrected")
+    correction_text: Optional[str] = Field(default=None, max_length=5000, description="用户的修正文本（rating=corrected 时必填）")
+    llm_via: Optional[str] = Field(default=None, description="LLM 通道标识")
+    fault_domain: Optional[str] = Field(default=None, description="设备领域")
+    device_model: Optional[str] = Field(default=None, description="设备型号")
+    citations_info: Optional[str] = Field(default=None, description="引用信息 JSON")
+
+
+class AIFeedbackInfo(BaseModel):
+    id: int
+    feedback_id: str
+    user_name: Optional[str] = None
+    question: str
+    answer: str
+    rating: str
+    correction_text: Optional[str] = None
+    llm_via: Optional[str] = None
+    fault_domain: Optional[str] = None
+    device_model: Optional[str] = None
+    status: str
+    status_label: str
+    admin_remark: Optional[str] = None
+    created_at_ts: Optional[int] = None
+
+
+class AIFeedbackReview(BaseModel):
+    status: str = Field(..., description="reviewed / incorporated")
+    remark: Optional[str] = Field(default=None, max_length=1000, description="处理备注")

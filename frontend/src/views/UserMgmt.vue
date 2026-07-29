@@ -75,18 +75,17 @@
             <th>角色</th>
             <th>维修任务统计</th>
             <th>创建时间</th>
-            <th>最近登录</th>
             <th>状态</th>
             <th>操作</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-if="loading"><td colspan="8" style="padding:64px 0">
+          <tr v-if="loading"><td colspan="7" style="padding:64px 0">
             <div class="skeleton-wrap">
-              <div v-for="i in 5" :key="i" class="skeleton-row"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+              <div v-for="i in 5" :key="i" class="skeleton-row"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
             </div>
           </td></tr>
-          <tr v-else-if="!pagedItems.length"><td colspan="8" style="text-align:center;padding:64px 0;color:var(--text-muted);" class="muted">暂无符合条件的用户</td></tr>
+          <tr v-else-if="!pagedItems.length"><td colspan="7" style="text-align:center;padding:64px 0;color:var(--text-muted);" class="muted">暂无符合条件的用户</td></tr>
           <tr v-for="u in pagedItems" :key="u.id" class="row-hover">
             <td>
               <div class="user-main">
@@ -97,7 +96,7 @@
                   <div class="user-name">{{ u.fullname }}</div>
                   <div class="user-login">@{{ u.username }}</div>
                 </div>
-                <span v-if="u.online" class="online-dot" title="活跃"></span>
+                <span class="online-dot" title="在线"></span>
               </div>
             </td>
             <td class="mono">{{ u.empId }}</td>
@@ -115,10 +114,7 @@
             </td>
             <td class="muted">{{ u.joined }}</td>
             <td>
-              <div class="contact-row">{{ u.lastLogin || '从未登录' }}</div>
-            </td>
-            <td>
-              <span class="status-pill" :class="'st-'+u.status">{{ u.statusText }}</span>
+              <span class="status-pill st-online">在线</span>
               <div class="last-login muted" v-if="u.deleted_at">禁用时间：{{ u.deleted_at.slice(0,10) }}</div>
             </td>
             <td>
@@ -151,7 +147,7 @@ import { getUser } from '../utils/auth'
 
 const ROLE_BADGE_TAGS = {
   sysadmin: [{ text: '系统权限', cls: 'red' }],
-  manager:  [{ text: '工单调度', cls: 'amber' }, { text: '报告审核', cls: 'primary' }],
+  manager:  [{ text: '工单调度', cls: 'amber' }, { text: '知识审核中心', cls: 'primary' }],
   worker:   [{ text: '维修执行', cls: 'cyan' }]
 }
 
@@ -173,8 +169,6 @@ function _fmtAgo(isoStr) {
 
 function _mapUser(u, selfId, now) {
   const isDisabled = !!(u.deleted_at || /^deleted_/i.test(u.username || ''))
-  const lastT = u.last_login_at ? new Date(u.last_login_at).getTime() : 0
-  const online = !isDisabled && lastT && (now - lastT) < 7 * 86400 * 1000
   const isWorker = u.role === 'worker'
   const done = Number((u.ticket_stats || {}).done || 0)
   const doing = Number((u.ticket_stats || {}).doing || 0)
@@ -194,12 +188,7 @@ function _mapUser(u, selfId, now) {
     tk_done: done,
     tk_doing: doing,
     tk_over: over,
-    joined: u.created_at ? String(u.created_at).slice(0, 10) : '-',
-    lastLogin: _fmtAgo(u.last_login_at),
-    online,
-    statusDisabled: isDisabled,
-    status: isDisabled ? 'disabled' : (online ? 'online' : 'offline'),
-    statusText: isDisabled ? '已禁用' : (online ? '活跃' : '离线'),
+    joined: u.join_date || '-',
     deleted_at: u.deleted_at || null,
     isSelf: selfId && Number(selfId) === Number(u.id)
   }
@@ -235,8 +224,8 @@ export default {
     total() { return this.mappedAll.length },
     managerCount() { return this.mappedAll.filter(u => !u.isWorker).length },
     workerCount()  { return this.mappedAll.filter(u => u.isWorker).length },
-    onlineCount()  { return this.mappedAll.filter(u => u.online && !u.statusDisabled).length },
-    onDutyWorker() { return this.mappedAll.filter(u => u.isWorker && u.online).length },
+    onlineCount()  { return this.mappedAll.filter(u => !u.deleted_at).length },
+    onDutyWorker() { return this.mappedAll.filter(u => u.isWorker).length },
     nowTime() {
       const d = new Date()
       return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0')
@@ -248,8 +237,8 @@ export default {
       return this.mappedAll.filter(u => {
         if (role === 'admin' && u.isWorker) return false
         if (role === 'worker' && !u.isWorker) return false
-        if (st === 'active' && u.statusDisabled) return false
-        if (st === 'disabled' && !u.statusDisabled) return false
+        if (st === 'active' && u.deleted_at) return false
+        if (st === 'disabled' && !u.deleted_at) return false
         if (kw) {
           const s = String(u.fullname||'').toLowerCase() + ' ' +
                     String(u.username||'').toLowerCase() + ' ' +

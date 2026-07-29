@@ -170,16 +170,16 @@
 
       <div class="combined-divider"></div>
 
-      <!-- 下：报告/指导审核统计 -->
+      <!-- 下：知识审核中心统计 -->
       <div class="combined-block">
         <div class="panel-header">
-          <h2 class="panel-title">📚 报告/指导审核</h2>
-          <span class="panel-hint">员工实践方案贡献</span>
+          <h2 class="panel-title">📚 知识审核中心</h2>
+          <span class="panel-hint">知识报告与 AI 回答修正审核</span>
         </div>
         <div class="kr-grid">
           <div class="kr-card kr-pending" @click="goReview('pending')">
             <div class="kr-top"><span class="kr-icon kr-pending-icon">⏳</span><span class="kr-label">待审核</span></div>
-            <div class="kr-num kr-pending-num">{{ reportStats.pending }}</div>
+            <div class="kr-num kr-pending-num">{{ reportStats.pending + aiFeedbackStats.pending }}</div>
           </div>
           <div class="kr-card kr-approved" @click="goReview('approved')">
             <div class="kr-top"><span class="kr-icon kr-approved-icon">✓</span><span class="kr-label">已通过</span></div>
@@ -187,7 +187,7 @@
           </div>
           <div class="kr-card kr-total" @click="goReview('all')">
             <div class="kr-top"><span class="kr-icon kr-total-icon">📑</span><span class="kr-label">累计提交</span></div>
-            <div class="kr-num kr-total-num">{{ reportStats.total }}</div>
+            <div class="kr-num kr-total-num">{{ reportStats.total + aiFeedbackStats.total }}</div>
           </div>
           <div class="kr-card kr-case" @click="goReview('synced')">
             <div class="kr-top"><span class="kr-icon kr-case-icon">📂</span><span class="kr-label">已入库</span></div>
@@ -212,6 +212,7 @@ export default {
       overview: { total: 0, ok: 0, repair: 0, down: 0 },
       tasks:    { pending: 0, assigned: 0, doing: 0, done: 0, over: 0 },
       reportStats: { total: 0, pending: 0, approved: 0, synced: 0 },
+      aiFeedbackStats: { total: 0, pending: 0, reviewed: 0, incorporated: 0 },
       pieData: [],
       trendData: [],
       trendRange: 7,
@@ -348,6 +349,12 @@ export default {
           approved: Number((d.reports || {}).approved || 0),
           synced:   Number((d.reports || {}).synced || 0)
         }
+        this.aiFeedbackStats = {
+          total:    Number((d.ai_feedback || {}).total || 0),
+          pending:  Number((d.ai_feedback || {}).pending || 0),
+          reviewed: Number((d.ai_feedback || {}).reviewed || 0),
+          incorporated: Number((d.ai_feedback || {}).incorporated || 0),
+        }
         this.pieData = Array.isArray(d.pie) ? d.pie : []
         this.trendData = Array.isArray(d.trend) ? d.trend : []
       } catch (e) {
@@ -365,6 +372,9 @@ export default {
       const q = { tab: 'knowledge' }
       if (kr && ['all', 'pending', 'approved', 'synced', 'rejected'].indexOf(kr) >= 0) q.kr = kr
       this.$router.push({ path: '/admin', query: q })
+    },
+    goAiFeedback() {
+      this.$router.push({ path: '/admin', query: { tab: 'knowledge', sub: 'ai_feedback' } })
     },
     goOrders(order) {
       this.$router.push({ path: '/admin', query: { tab: 'order', order } })
@@ -791,7 +801,12 @@ export default {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   cursor: pointer;
-  transition: all 0.2s ease;
+}
+/* === AI 回答优化统计行 === */
+.ai-feedback-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 .kr-card:hover {
   border-color: var(--border-hover);
