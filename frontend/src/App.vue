@@ -2,7 +2,11 @@
   <div class="app-wrapper">
     <TopNav v-if="showNav" />
     <main class="main-content">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <transition name="page-fade" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </router-view>
     </main>
     <transition name="toast">
       <div v-if="toast.show" class="global-toast" :class="'toast-' + toast.level">
@@ -45,6 +49,11 @@ export default {
     window.addEventListener('equipai-toast', this._onToast)
     window.addEventListener('storage', this._onStorageChanged)
     this._refreshMe()
+    // 初始页面标题
+    const label = this.$route.meta?.label
+    document.title = label
+      ? label + ' — EQUIPAI · 设备检修智能系统'
+      : 'EQUIPAI · 设备检修智能系统'
   },
   beforeUnmount() {
     window.removeEventListener('equipai-toast', this._onToast)
@@ -54,6 +63,17 @@ export default {
   watch: {
     '$route.path'() {
       this._refreshMe()
+    },
+    '$route'(to) {
+      // 更新浏览器 Tab 标题
+      const label = to.meta?.label
+      if (label) {
+        document.title = label + ' — EQUIPAI · 设备检修智能系统'
+      } else if (to.path === '/login') {
+        document.title = '登录 — EQUIPAI · 设备检修智能系统'
+      } else {
+        document.title = 'EQUIPAI · 设备检修智能系统'
+      }
     }
   },
   methods: {
@@ -161,5 +181,20 @@ export default {
 .toast-enter-from, .toast-leave-to {
   opacity: 0;
   transform: translate(-50%, -16px);
+}
+
+/* 页面切换过渡 */
+.page-fade-enter-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.page-fade-leave-active {
+  transition: opacity 120ms ease;
+}
+.page-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-fade-leave-to {
+  opacity: 0;
 }
 </style>
